@@ -1,1 +1,2 @@
 library(usethis)
+use.git()
