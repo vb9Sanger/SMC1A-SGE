@@ -125,3 +125,360 @@ See the 5'UTR SGE pilot repo's [run_maveqc_VB.R documentation](https://github.co
 * `run_maveqc_VB.R` is reused unmodified from the 5'UTR SGE pilot repo.
 
 ---
+### Classify variants: shrinkage-based Gaussian anchor model
+
+#### Background:
+Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
+
+It sits between two extremes:
+* a **gene-wide anchor** (one shared LOF/no-impact distribution pooled across all targetons) — maximum statistical power, but can't adapt to a targeton that's genuinely different
+* a **per-targeton anchor** (each targeton fit in total isolation) — adapts fully to each exon, but small-n exons can be yanked around by a handful of noisy points
+
+For each targeton, this script computes both the gene-wide anchor and that targeton's own local anchor, then **shrinks** the local anchor toward the gene-wide one, weighted by how much data that targeton has (a pseudo-count rule, the same logic as DESeq2's own dispersion shrinkage):
+
+```
+mu_shrunk_i  = (n_i * mu_local_i  + k * mu_global)  / (n_i + k)
+var_shrunk_i = (n_i * var_local_i + k * var_global) / (n_i + k)
+```
+
+applied separately to the LOF anchor and the no-impact anchor. A well-powered targeton (n_i >> k) stays close to its own local estimate; a thin targeton (n_i << k) is pulled toward the gene-wide value. `k` defaults to `"auto"` (median per-targeton n across the gene, separately for LOF and no-impact).
+
+Every row in every targeton is then classified using *that targeton's own shrunk anchors* and shrunk 95th-percentile LOF threshold (posterior-probability depleted/no-impact call, with weak/strong tiering).
+
+An `exon_map` (`SMC1A_exon_map.tsv`) was supplied for this run, enabling NMD-escape-aware LOF filtering — LOF variants falling in the final exon, or within `--nmd_escape_distance` (default 50bp) of the final exon-exon junction in the penultimate exon, are treated as plausible NMD-escape variants and excluded from the LOF fitting pool (both gene-wide and local), since they may not behave like true loss-of-function alleles.
+
+#### Requirements:
+* R package `data.table` (required); `ggplot2` + `ragg` (only if `--plot_dir` is set)
+* Day15-vs-reference DESeq2 output TSVs from MAVEQC (e.g. `*_all_deseq2_results_condition_Day15_vs_Day4.tsv`)
+* `SMC1A_exon_map.tsv` — columns `Exon_position` (chrN:start-end), `EXON` (integer, transcript order), `Targeton_ID`
+* [`gaussian_shrinkage_classifier.R`](Code/gaussian_shrinkage_classifier.R)
+
+#### Running the script:
+Run (example):
+```bash
+Rscript Code/gaussian_shrinkage_classifier.R \
+  --input "deseq2_results/*_all_deseq2_results_condition_Day15_vs_Day4.tsv" \
+  --out_dir GMM_shrinkage_results \
+  --plot_dir GMM_shrinkage_results/plots \
+  --exon_map SMC1A_exon_map.tsv
+```
+Full flag list: run with `--help`.
+
+#### Output:
+* Per-targeton output TSVs (same rows/columns as input, plus `anchor_mu_lof`, `anchor_sd_lof`, `anchor_mu_lof_local`, `anchor_mu_lof_global`, `anchor_weight_lof_local`, `anchor_mu_noimpact`, `anchor_sd_noimpact`, `anchor_mu_noimpact_local`, `anchor_mu_noimpact_global`, `anchor_weight_noimpact_local`, `anchor_direction`, `anchor_lof_threshold`, `anchor_post_lof`, `anchor_call`, and final `anchor_tier`)
+* `gmm_shrinkage_anchor_summary.tsv` — one row per targeton, with local/global/shrunk fit parameters and tier counts
+* If `--plot_dir` is set: 2 diagnostic PNGs per targeton (`<targeton>_anchor_fit.png` — all variants; `<targeton>_missense_anchor_fit.png` — missense only), showing the shrunk fit (solid) vs gene-wide fit (dotted) and the shrunk 95th-percentile LOF threshold
+
+#### Notes:
+* Rows with a pre-existing `"enriched"` status (from `stat_pos_raw` by default) are passed through as `enriched` and excluded from the anchor-fitting pool.
+* This script is one of three related anchor pipelines — `gmm_gene_wide_anchor_pipeline.R` (pure gene-wide anchor) and `gmm_per_targeton_anchor_pipeline.R` (pure per-targeton anchor) sit at the two extremes this script blends between.
+
+---
+### Plot domain maps
+
+#### Background:
+For each targeton, [`sge_domain_map_clinvar.py`](Code/sge_domain_map_clinvar.py):
+1. Fetches SMC1A domain annotations from the UniProt REST API
+2. Fetches exon/CDS coordinates from the Ensembl REST API to convert genomic positions to protein amino acid positions (SMC1A-specific genomic↔AA exon mapping is hardcoded for `ENST00000322213`, chrX minus strand)
+3. Produces two plots per targeton:
+   * **Lollipop plot** — variants as stems on a linear domain map
+   * **Heatmap** — per-residue LFC coloured by domain
+
+Variant significance is read from `anchor_tier` (preferred — visual weight scales by tier: strongly depleting/enriched most prominent, weakly depleting intermediate, no impact faint background), falling back to the older `GMM_status` column, then to FDR-thresholding (`pos_adj_fdr_raw < 0.05`) for older result files.
+
+Optionally takes a local ClinVar VCF (`--clinvar`) to overlay P/LP variants on the plots.
+
+#### Requirements:
+* `pip install pandas matplotlib requests seaborn`
+* DESeq2/GMM-anchor results TSVs (one per targeton), with `position`, `consequence`, `pos_adj_log2FoldChange_raw`, and `anchor_tier` (or `GMM_status`/`pos_adj_fdr_raw` as fallback)
+* Internet access (UniProt + Ensembl REST APIs)
+* (Optional) local ClinVar VCF (`clinvar.vcf.gz`) for the ClinVar overlay track
+* [`sge_domain_map_clinvar.py`](Code/sge_domain_map_clinvar.py)
+
+#### Running the script:
+Run (example):
+```bash
+python sge_domain_map_clinvar.py \
+  --input SMC1A_maveqc/all_screens/thesis/GMM_shrinkage/D4_ref/results/*.tsv \
+  --outdir SMC1A_maveqc/all_screens/thesis/GMM_shrinkage/D4_ref/plots/domain \
+  --clinvar SMC1A_maveqc/all_screens/clin_var/clinvar.vcf.gz
+```
+Use `--no-aa-map` to skip genomic→AA mapping and plot in genomic coordinates instead.
+
+#### Output:
+* `<name>_lollipop.png` — lollipop plot of variants on the domain map, per targeton
+* `<name>_heatmap.png` — per-residue LFC heatmap coloured by domain, per targeton
+
+#### Notes:
+* `UNIPROT_ID` (`Q14683`) and `TRANSCRIPT` (`ENST00000322213`, MANE Select) are hardcoded defaults for SMC1A, overridable via `--uniprot`/`--transcript`.
+* The genomic↔AA exon coordinate map (`SMC1A_CDS_EXONS_HG38`) is hardcoded specifically for SMC1A on hg38 — this would need updating for a different gene or genome build.
+
+---
+### Extract per-targeton ClinVar VCFs
+
+#### Background:
+[`extract_clinvar_vcfs.sh`](Code/extract_clinvar_vcfs.sh) generates the per-targeton ClinVar VCFs required by the ClinVar intersection step below. For each targeton in a regions guide TSV, it extracts variants from a whole ClinVar VCF using `bcftools` and writes a per-targeton bgzipped VCF + index.
+
+#### Requirements:
+* `bcftools` (>=1.9), `tabix` (part of htslib)
+* Regions TSV with headers `Targeton_ID`, `chrom`, `start`, `end` (as produced by `extract_targeton_regions.py`)
+* A ClinVar VCF, tabix-indexed (`tabix -p vcf clinvar.vcf.gz`)
+* [`extract_clinvar_vcfs.sh`](Code/extract_clinvar_vcfs.sh)
+
+#### Running the script:
+Run:
+```bash
+bash extract_clinvar_vcfs.sh \
+  --regions  targeton_regions.tsv \
+  --clinvar  clinvar.vcf.gz \
+  --outdir   clinvar_vcfs/
+```
+
+#### Output:
+* `<Targeton_ID>_clinvar.vcf.gz` + `.tbi` index, per targeton with ≥1 matching ClinVar variant, in `--outdir`
+* Empty VCFs (0 ClinVar hits in that region) are written but **not** indexed
+* Console summary: counts of targetons with variants (indexed), empty, and failed
+
+#### Notes:
+* The 'chr' prefix is stripped from `chrom` before querying, since ClinVar's GRCh38 VCF uses plain contig names (e.g. `X`, not `chrX`). ClinVar GRCh37 does not use the `chr` prefix either — if an unexpectedly large number of targetons come back empty, double check the ClinVar VCF's contig naming and genome build match the regions TSV.
+
+---
+### Intersect with ClinVar and plot
+
+#### Background:
+For each targeton, [`sge_clinvar_intersect.py`](Code/sge_clinvar_intersect.py) intersects the SGE DESeq2/anchor results with ClinVar variants and produces lollipop plots plus annotated TSVs.
+
+Depletion status is read from `anchor_tier` if present (preferred — 4 levels: strongly depleting / weakly depleting / no impact / enriched, from the shrinkage/GMM anchor pipelines above), falling back to `GMM_status` (3-level) or `stat_pos_raw` for older inputs.
+
+Two plot types are produced per targeton:
+1. **Full lollipop plot** — all ClinVar variants for the targeton, encoding:
+   * shape = depletion status (▽ strongly/weakly depleting, weakly drawn smaller; ○ no impact; △ enriched)
+   * colour = disease condition (DEE only / CdLS only / Both / Other SMC1A / Unclassified / No Condition Provided)
+   * border = ClinVar classification (thick black = P/LP, thin grey = other)
+2. **Condition-split plot** — restricted to DEE-only or CdLS-only variants, coloured by variant consequence instead. If a targeton has both categories, this becomes a two-panel figure (DEE-only on top, CdLS-only on bottom) sharing a genomic-position x-axis.
+
+#### Requirements:
+* `pip install pandas matplotlib numpy`
+* `bcftools` on PATH (for VCF reading)
+* DESeq2/GMM-anchor results TSVs (all targetons; needs `position`, `oligo_name`, `pos_adj_log2FoldChange_raw`, and one of `anchor_tier`/`GMM_status`/`stat_pos_raw`)
+* `*_meta_consequences.tsv` files (for joining ref/alt alleles onto DESeq2 results)
+* Per-targeton ClinVar VCFs (`<Targeton_ID>_clinvar.vcf.gz`)
+* Targeton regions TSV (columns: `Targeton_ID`, `chrom`, `start`, `end`) — produced by `extract_targeton_regions.py`
+* [`sge_clinvar_intersect.py`](Code/sge_clinvar_intersect.py)
+
+#### Running the script:
+Run (example):
+```bash
+python sge_clinvar_intersect.py \
+  --deseq2_dir  all_deseq2_results.tsv \
+  --meta_dir    /path/to/meta_consequence/files \
+  --vcf_dir     /path/to/per_targeton_vcfs/ \
+  --regions     targeton_regions.tsv \
+  --outdir      clinvar_intersect_plots/
+```
+Add `--de_novo_only` to restrict the **plots** to ClinVar variants with the de-novo bit set in `ORIGIN` (this does not affect the TSVs, which always retain every ClinVar match).
+
+#### Output (per targeton, in `--outdir`):
+* `<tid>_clinvar_annotated.tsv` — original DESeq2 columns + meta annotation + ClinVar match info (`clinvar_id`, `origin_raw`, `origin_flags`, `is_de_novo`, and — if `--submission_summary` given — `any_submission_de_novo`/`n_submissions`/etc.)
+* `<tid>_clinvar_intersect.png` — full lollipop plot (all conditions)
+* `<tid>_DEE_only.png` / `<tid>_CdLS_only.png` — if only one condition category present
+* `<tid>_DEE_CdLS_stacked.png` — if both DEE-only and CdLS-only variants present
+* `clinvar_variants_summary.tsv` — one combined TSV (not per-targeton) listing every ClinVar-matched variant across all targetons, with `Targeton_ID` and `exon` prepended
+
+#### Notes:
+* `origin_raw`/`origin_flags`/`is_de_novo` are always populated regardless of `--de_novo_only`, so downstream filtering on your own terms is possible after the fact.
+* Variants matched to ClinVar but with no de-novo flag from either source fall back to the "No Condition Provided" background category for plotting purposes only.
+
+---
+### Investigate specific ClinVar variants
+
+#### Background:
+[`investigate_clinvar_variants.py`](Code/investigate_clinvar_variants.py) pulls submission-level detail (reviewer status, date last evaluated, submitter, collection method, SCV, whether each SCV contributes to the aggregate classification) from ClinVar's `submission_summary.txt.gz`, for a chosen subset of variants from `clinvar_variants_summary.tsv` (produced by the ClinVar intersection step above).
+
+Built for exactly this kind of question: *"this cluster of variants looks functionally/clinically inconsistent — are the underlying ClinVar submissions old / single-submitter / low-review-status (suggesting stale labeling), or well-supported by multiple recent, high-confidence submissions?"*
+
+The variant subset can be selected either by filters (`--condition`, `--consequence`, `--anchor_tier`, `--clnsig`, which combine with AND) or by passing explicit `--clinvar_ids`.
+
+#### Requirements:
+* `pandas`
+* `clinvar_variants_summary.tsv` (from `sge_clinvar_intersect.py`)
+* ClinVar's `submission_summary.txt.gz`
+* [`investigate_clinvar_variants.py`](Code/investigate_clinvar_variants.py)
+
+#### Running the script:
+Run (examples):
+```bash
+# Filter-based selection
+python investigate_clinvar_variants.py \
+  --summary_tsv clinvar_variants_summary.tsv \
+  --submission_summary submission_summary.txt.gz \
+  --condition "CdLS only" --consequence LOF \
+  --prefix cdls_lof_investigation
+
+# Filter combination for a specific discordant subset
+python investigate_clinvar_variants.py \
+  --summary_tsv clinvar_variants_summary.tsv \
+  --submission_summary submission_summary.txt.gz \
+  --condition "CdLS only" --consequence LOF --anchor_tier "no impact" \
+  --clnsig "Pathogenic,Pathogenic/Likely pathogenic" \
+  --prefix cdls_lof_noimpact
+
+# Explicit VariationID list
+python investigate_clinvar_variants.py \
+  --summary_tsv clinvar_variants_summary.tsv \
+  --submission_summary submission_summary.txt.gz \
+  --clinvar_ids 489224,1069969,1806292 \
+  --prefix manual_check
+```
+
+#### Output:
+* `<prefix>_variant_level.tsv` — one row per variant: annotation columns (`Targeton_ID`, `HGVSc`, `HGVSp`, `condition`, `clnsig_norm`, `Summary_Plot`, `anchor_tier`, `clndn_raw`, `clinvar_id`) plus aggregated submission stats (`n_submissions_found`, earliest/latest `DateLastEvaluated`, unique review statuses, submitters, collection methods) — the quick "does this look stale/thin?" table
+* `<prefix>_submission_level.tsv` — one row per individual SCV, full detail, for manual read-through of specific submissions
+
+#### Notes:
+* If `--clinvar_ids` is given, all other filters are ignored.
+* Variants with no matching submissions in `submission_summary.txt.gz` are still included in the variant-level output, with blank/zero submission stats.
+
+---
+### Check OMIM/condition coding patterns in ClinVar submissions
+
+#### Background:
+[`check_omim_coding_patterns.py`](Code/check_omim_coding_patterns.py) is a gene-wide follow-up to the ClinVar investigation step above: across **all** ClinVar-matched variants (not just one filtered subset), it checks how often individual submissions actually cite a DEE-specific code/term (`OMIM:301044`, "developmental and epileptic encephalopathy", etc.) versus a CdLS-specific code/term (`OMIM:300590`, `MedGen:C1802395`, "Cornelia de Lange", etc.) — and whether that tracks variant consequence (`Summary_Plot`) and `anchor_tier` better than ClinVar's own aggregated `condition` column does.
+
+For a true gene-wide check, this requires first (re-)running `investigate_clinvar_variants.py` with **no filters** so it processes every ClinVar-matched variant.
+
+#### Requirements:
+* `pandas`
+* `*_submission_level.tsv` from an **unfiltered** run of `investigate_clinvar_variants.py`
+* [`check_omim_coding_patterns.py`](Code/check_omim_coding_patterns.py)
+
+#### Running the script:
+First, generate the unfiltered submission-level file:
+```bash
+python investigate_clinvar_variants.py \
+  --summary_tsv clinvar_variants_summary.tsv \
+  --submission_summary submission_summary.txt.gz \
+  --prefix all_clinvar_variants
+```
+Then run:
+```bash
+python check_omim_coding_patterns.py \
+  --input all_clinvar_variants_submission_level.tsv \
+  --output_prefix omim_coding_check
+```
+
+#### Output:
+* `<output_prefix>_submission_level_flagged.tsv` — input, plus `mentions_dee` and `mentions_cdls` boolean flags per submission
+* `<output_prefix>_variant_level.tsv` — one row per variant, with `n_submissions`, `any_mentions_dee`/`any_mentions_cdls`, `n_mentions_dee`/`n_mentions_cdls`, annotation columns, and a `coding_pattern` classification (`"both cited"` / `"DEE cited only"` / `"CdLS cited only"` / `"neither (uncoded/other)"`)
+* Console crosstabs: `coding_pattern` × consequence, × ClinVar's `condition`, × `anchor_tier`; plus a specific breakdown for LOF-consequence variants
+
+#### Notes:
+* Both the raw submitted code text (`SubmittedPhenotypeInfo`) and ClinVar's resolved text (`ReportedPhenotypeInfo`) are checked, since a bare code like `OMIM:300590` won't textually match "cornelia" unless the resolved text is also searched.
+
+---
+### Classify mechanism behind "Both"-condition variants
+
+#### Background:
+[`classify_both_mechanism.py`](Code/classify_both_mechanism.py) takes every variant labeled `condition == "Both"` (ClinVar's aggregated `CLNDN` field contains both a CdLS-associated and a DEE-associated term) and determines *why* it ended up "Both":
+* **"single submission lists both conditions"** — at least one individual submission (SCV), on its own, cites both a CdLS term and a DEE term together (one lab attached both conditions to one classification)
+* **"different submitters disagree (one CdLS, one DEE)"** — no single submission mentions both terms, but across the variant's submissions, at least one cites CdLS only and a separate one cites DEE only
+* **"other/unclear"** — neither of the above (shouldn't normally occur for a variant already labeled "Both", included for completeness)
+
+#### Requirements:
+* `pandas`
+* `*_submission_level_flagged.tsv` from `check_omim_coding_patterns.py` above (must have `VariationID`, `condition`, `mentions_dee`, `mentions_cdls` columns — **not** the raw `submission_level.tsv`)
+* [`classify_both_mechanism.py`](Code/classify_both_mechanism.py)
+
+#### Running the script:
+Run:
+```bash
+python classify_both_mechanism.py \
+  --input omim_coding_check_submission_level_flagged.tsv \
+  --output both_variants_mechanism.tsv
+```
+
+#### Output:
+* `both_variants_mechanism.tsv` — one row per "Both"-condition variant: `n_submissions_total`, `n_submissions_citing_both_in_one_row`, `n_submissions_citing_cdls_only`, `n_submissions_citing_dee_only`, `n_submissions_citing_neither`, and the final `mechanism` classification
+* Console summary: mechanism value counts, and a crosstab of `n_submissions_total` × `mechanism`
+
+#### Notes:
+* `--condition_value` (default `"Both"`) can be changed to investigate a different `condition` value using the same logic.
+
+---
+### Extract per-targeton gnomAD VCFs
+
+#### Background:
+[`extract_gnomad_vcfs.sh`](Code/extract_gnomad_vcfs.sh) generates the per-targeton gnomAD VCFs required by the gnomAD intersection step below. It mirrors `extract_clinvar_vcfs.sh` in structure/output conventions, with two differences:
+1. It queries gnomAD v4.1 sites VCFs **remotely** (no local download required) via `bcftools` + HTTPS range requests — nothing is downloaded in full, and no local `.tbi` is needed (htslib fetches the remote index automatically).
+2. It queries **two** sources per targeton — exomes and genomes — since assay variants can fall in regions with uneven exome-capture coverage (intronic/splice positions in particular).
+
+Unlike the ClinVar script, no contig-prefix stripping is needed: gnomAD v4.1 GRCh38 VCFs use `chr`-prefixed contigs, so a `chr` prefix is *added* to the regions TSV's `chrom` column if not already present.
+
+#### Requirements:
+* `bcftools` (>=1.9, built with libcurl for remote HTTPS access)
+* The **same** `targeton_regions.tsv` used for `extract_clinvar_vcfs.sh` (headers `Targeton_ID`, `chrom`, `start`, `end`) — not the exon map, which can miss flanking intronic/splice sequence the assay actually covers
+* gnomAD v4.1 sites VCF URLs (exomes and/or genomes)
+* [`extract_gnomad_vcfs.sh`](Code/extract_gnomad_vcfs.sh)
+
+#### Running the script:
+Run:
+```bash
+bash extract_gnomad_vcfs.sh \
+  --regions      targeton_regions.tsv \
+  --exomes-url   https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chrX.vcf.bgz \
+  --genomes-url  https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/genomes/gnomad.genomes.v4.1.sites.chrX.vcf.bgz \
+  --outdir       gnomad_vcfs/
+```
+
+#### Output:
+* `<Targeton_ID>_gnomad_exomes.vcf.gz` / `<Targeton_ID>_gnomad_genomes.vcf.gz` + `.tbi` index, per targeton with ≥1 matching variant, in `--outdir`
+* Empty VCFs (0 hits in that region) are written but **not** indexed
+* Console summary: counts with variants (indexed), empty, and failed
+
+#### Notes:
+* Failures usually mean either no network access to `storage.googleapis.com` from the running environment, or a contig-naming mismatch — confirm with `bcftools view -h <url> | grep '^##contig' | head`.
+
+---
+### Intersect with gnomAD and plot
+
+#### Background:
+[`sge_gnomad_intersect_plot.py`](Code/sge_gnomad_intersect_plot.py) intersects the SGE DESeq2/GMM-anchor results with gnomAD (exomes + genomes) for every assay variant across all targetons, and tests whether the depleted/enriched calls are under-represented in the population relative to "no impact" — a purifying-selection sanity check alongside the ClinVar concordance analysis above.
+
+It mirrors the ClinVar intersect script's structure (same `find_deseq2_files`/`load_meta_consequences`/`get_depletion_column` helpers, same merge key: `vcf_pos` + `vcf_ref` + `vcf_alt`), with two differences:
+1. **Two** gnomAD sources per targeton (exomes + genomes), pooled per variant, rather than one ClinVar VCF.
+2. The cross-targeton summary TSV includes **every** assayed variant (matched or not) — testing for absence requires the full denominator, not just the hits.
+
+**Important:** this script assumes gnomAD v4.1 INFO field names (`AC`, `AN`, `AF`, `grpmax`, `AF_grpmax`), which have **not** been verified against the actual downloaded VCFs. Before running in earnest, check with `bcftools view -h <TID>_gnomad_exomes.vcf.gz | grep '^##INFO'` and adjust `--ac_field`/`--an_field`/`--af_field`/`--grpmax_af_field`/`--grpmax_pop_field` if the names differ (the script warns once per file if a configured field is never found).
+
+#### Requirements:
+* `pip install pandas numpy scipy matplotlib`
+* Directory of per-targeton DESeq2/anchor TSVs (filenames starting with `Targeton_ID`)
+* `*_meta_consequences.tsv` files
+* `<Targeton_ID>_gnomad_exomes.vcf.gz` / `<Targeton_ID>_gnomad_genomes.vcf.gz` (from `extract_gnomad_vcfs.sh` above)
+* `targeton_regions.tsv` (from `extract_targeton_regions.py`)
+* [`sge_gnomad_intersect_plot.py`](Code/sge_gnomad_intersect_plot.py)
+
+#### Running the script:
+Run (example):
+```bash
+python sge_gnomad_intersect_plot.py \
+  --deseq2_dir     all_deseq2_results/ \
+  --meta_dir       /path/to/meta_consequence/files \
+  --gnomad_vcf_dir gnomad_vcfs/ \
+  --regions        targeton_regions.tsv \
+  --outdir         gnomad_intersect_results/
+```
+By default only `FILTER=PASS` gnomAD records are kept; add `--include_non_pass` to include non-PASS records too.
+
+#### Output:
+* `<TID>_gnomad_annotated.tsv` — every DESeq2/anchor row for that targeton, plus gnomAD exomes/genomes/pooled columns
+* `sge_gnomad_summary.tsv` — **all** assay variants across all targetons (the full denominator table), with gnomAD + `anchor_tier` columns
+* `gnomad_absence_stats.tsv` — per-tier gnomAD-match rate, plus the depleted/enriched-vs-no-impact contingency test (Fisher's exact) results
+* `gnomad_match_rate_by_tier.png` — bar chart of % gnomAD-matched per tier
+* `gnomad_af_by_tier.png` — boxplot of log10(pooled AF) per tier, gnomAD-matched variants only
+
+#### Notes:
+* Verify gnomAD INFO field names against your actual VCFs before trusting the output (see Background above).
+* The `TARGETON_EXON` mapping used for the cross-targeton summary is duplicated from the ClinVar intersect script — keep both in sync if the exon map changes.
+
+---
