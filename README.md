@@ -125,7 +125,7 @@ See the 5'UTR SGE pilot repo's [run_maveqc_VB.R documentation](https://github.co
 * `run_maveqc_VB.R` is reused unmodified from the 5'UTR SGE pilot repo.
 
 ---
-### Classify variants: shrinkage-based Gaussian anchor model
+### STEP FIVE: Classify variants: shrinkage-based Gaussian anchor model
 
 #### Background:
 Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
@@ -189,7 +189,7 @@ Variant significance is read from `anchor_tier` (preferred — visual weight sca
 Optionally takes a local ClinVar VCF (`--clinvar`) to overlay P/LP variants on the plots.
 
 #### Requirements:
-* `pip install pandas matplotlib requests seaborn`
+* `pip install pandas numpy matplotlib requests
 * DESeq2/GMM-anchor results TSVs (one per targeton), with `position`, `consequence`, `pos_adj_log2FoldChange_raw`, and `anchor_tier` (or `GMM_status`/`pos_adj_fdr_raw` as fallback)
 * Internet access (UniProt + Ensembl REST APIs)
 * (Optional) local ClinVar VCF (`clinvar.vcf.gz`) for the ClinVar overlay track
@@ -259,7 +259,6 @@ Two plot types are produced per targeton:
 
 #### Requirements:
 * `pip install pandas matplotlib numpy`
-* `bcftools` on PATH (for VCF reading)
 * DESeq2/GMM-anchor results TSVs (all targetons; needs `position`, `oligo_name`, `pos_adj_log2FoldChange_raw`, and one of `anchor_tier`/`GMM_status`/`stat_pos_raw`)
 * `*_meta_consequences.tsv` files (for joining ref/alt alleles onto DESeq2 results)
 * Per-targeton ClinVar VCFs (`<Targeton_ID>_clinvar.vcf.gz`)
