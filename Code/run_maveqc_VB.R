@@ -3,7 +3,7 @@
 # =============================================================================
 # run_maveqc_VB_fixed.R
 #
-# Author: Vanessa Burns (fixes: see notes below)
+# Author: Vanessa Burns 
 # Version: 1.1
 # Date: 2026-07-17
 #
@@ -12,35 +12,6 @@
 # Performs read processing, positional correction, normalisation, log fold-
 # change calculation, quality control, and generation of analysis outputs,
 # INCLUDING the final MAVEQC_report.html for plasmid and screen QC.
-#
-# Fixes applied relative to run_maveqc_VB.R:
-#   1. main() now calls qcout_expqc_all() after run_experiment_qc(), so
-#      experiment_qc_corr.tsv and experiment_qc_deseq_fc.*.all(_sum).tsv
-#      actually get written (previously only the matching PNGs were).
-#   2. main() now calls create_qc_reports() for both plasmid and screen QC
-#      at the end, so MAVEQC_report.html is generated automatically
-#      (previously create_qc_reports() was defined but never called).
-#   3. create_qc_reports() gained an experiment_qc_dir parameter: the
-#      "Run Experiment QC" section of the screen report reads
-#      experiment_qc_* files, which main() writes to their own
-#      experiment_qc/ directory (a sibling of screen_qc/), not inside
-#      qc_dir itself -- previously this was hardcoded to qc_dir.
-#   4. create_qc_reports() now resolves samplesheet/qc_dir/experiment_qc_dir
-#      to absolute paths up front (with clear "not found" errors) instead
-#      of writing possibly-relative paths into the generated Rmd, which
-#      could break depending on the working directory at render time.
-#   5. The two "for (i in 1:length(figs))" loops for fold-change plots now
-#      use "for (i in seq_along(figs))" and warn instead of erroring when
-#      no matching files are found (1:0 in the original iterates i = 1, 0,
-#      causing an index-out-of-bounds error rather than just skipping).
-#   6. packageVersion("MAVEQC") no longer errors when MAVEQC isn't
-#      installed as an actual R package (this is a standalone script).
-#   7. CLI arg parsing / the final main(...) call no longer errors when
-#      this file is source()'d with zero args -- useful for reusing the
-#      function definitions (e.g. create_qc_reports()) without re-running
-#      the whole pipeline. Rscript'ing this file directly with the usual
-#      two args (<input_dir> <output_dir>) still runs the full pipeline
-#      exactly as before.
 #
 # =============================================================================
 
