@@ -109,7 +109,7 @@ QC is performed using an adapted version of [MAVE-QC](https://github.com/wtsi-hg
 SMC1A-specific change from that original: the 5'UTR project targeted non-coding
 sequence, so its variants were annotated generically as `SNV`, and that class was
 included in the background-fitting pool (`fit_consequences`) used to build the
-LOF/no-impact anchors. SMC1A is coding, so variants carry `Missense_Variant`/
+PTV/no-impact anchors (see the terminology note at the top of STEP FIVE). SMC1A is coding, so variants carry `Missense_Variant`/
 `Synonymous_Variant`/etc. labels instead — `SNV` never applies here and has been
 removed from that list. Everything else differing from the 5'UTR original is a bug fix,
 documented in this script's own header comment (report generation was previously never
@@ -150,10 +150,22 @@ reference — see STEP SIX for why both are needed.
 ### STEP FIVE: Classify variants: shrinkage-based Gaussian anchor model
 
 #### Background:
+
+**Terminology note**: this step's anchors are built from an annotation-based consequence
+class — nonsense/frameshift calls, i.e. **protein-truncating variants (PTVs)** — not from
+a confirmed functional outcome. The scripts, their CLI flags, and their output columns
+all name this class `LOF` (e.g. `anchor_mu_lof`, `--lof_label`), for historical reasons;
+this README uses **PTV** in prose instead, reserving "loss-of-function" for the actual
+functional/mechanistic claim (which is what the assay's `anchor_tier` result speaks to,
+not what goes into building the anchor). The distinction matters concretely: not every
+PTV causes loss of function (NMD escape being the clearest exception, handled explicitly
+below), so treating the annotation label and the functional outcome as interchangeable
+would beg the question this step's classification is meant to test.
+
 Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/pipeline/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
 
 It sits between two extremes:
-* a **gene-wide anchor** (one shared LOF/no-impact distribution pooled across all targetons) — maximum statistical power, but can't adapt to a targeton that's genuinely different
+* a **gene-wide anchor** (one shared PTV/no-impact distribution pooled across all targetons) — maximum statistical power, but can't adapt to a targeton that's genuinely different
 * a **per-targeton anchor** (each targeton fit in total isolation) — adapts fully to each exon, but small-n exons can be yanked around by a handful of noisy points
 
 For each targeton, this script computes both the gene-wide anchor and that targeton's own local anchor, then **shrinks** the local anchor toward the gene-wide one, weighted by how much data that targeton has (a pseudo-count rule, the same logic as DESeq2's own dispersion shrinkage):
@@ -163,11 +175,11 @@ mu_shrunk_i  = (n_i * mu_local_i  + k * mu_global)  / (n_i + k)
 var_shrunk_i = (n_i * var_local_i + k * var_global) / (n_i + k)
 ```
 
-applied separately to the LOF anchor and the no-impact anchor. A well-powered targeton (n_i >> k) stays close to its own local estimate; a thin targeton (n_i << k) is pulled toward the gene-wide value. `k` defaults to `"auto"` (median per-targeton n across the gene, separately for LOF and no-impact). Its sensitivity to that choice is checked in `Code/investigations/compare_shrinkage_k_runs.py` (see STEP NINE).
+applied separately to the PTV anchor and the no-impact anchor. A well-powered targeton (n_i >> k) stays close to its own local estimate; a thin targeton (n_i << k) is pulled toward the gene-wide value. `k` defaults to `"auto"` (median per-targeton n across the gene, separately for PTV and no-impact). Its sensitivity to that choice is checked in `Code/investigations/compare_shrinkage_k_runs.py` (see STEP NINE).
 
-Every row in every targeton is then classified using *that targeton's own shrunk anchors* and shrunk 95th-percentile LOF threshold (posterior-probability depleted/no-impact call, with weak/strong tiering).
+Every row in every targeton is then classified using *that targeton's own shrunk anchors* and shrunk 95th-percentile PTV threshold (posterior-probability depleted/no-impact call, with weak/strong tiering).
 
-An `exon_map` (`SMC1A_exon_map.tsv`) was supplied for this run, enabling NMD-escape-aware LOF filtering — LOF variants falling in the final exon, or within `--nmd_escape_distance` (default 50bp) of the final exon-exon junction in the penultimate exon, are treated as plausible NMD-escape variants and excluded from the LOF fitting pool (both gene-wide and local), since they may not behave like true loss-of-function alleles.
+An `exon_map` (`SMC1A_exon_map.tsv`) was supplied for this run, enabling NMD-escape-aware PTV filtering — PTVs falling in the final exon, or within `--nmd_escape_distance` (default 50bp) of the final exon-exon junction in the penultimate exon, are treated as plausible NMD-escape variants and excluded from the PTV fitting pool (both gene-wide and local), since they may not behave like true loss-of-function alleles.
 
 #### Requirements:
 * R package `data.table` (required); `ggplot2` + `ragg` (only if `--plot_dir` is set)
@@ -189,7 +201,7 @@ Full flag list: run with `--help`. Run once per reference condition (Day4, Plasm
 #### Output:
 * Per-targeton output TSVs (same rows/columns as input, plus `anchor_mu_lof`, `anchor_sd_lof`, `anchor_mu_lof_local`, `anchor_mu_lof_global`, `anchor_weight_lof_local`, `anchor_mu_noimpact`, `anchor_sd_noimpact`, `anchor_mu_noimpact_local`, `anchor_mu_noimpact_global`, `anchor_weight_noimpact_local`, `anchor_direction`, `anchor_lof_threshold`, `anchor_post_lof`, `anchor_call`, and final `anchor_tier`)
 * `gmm_shrinkage_anchor_summary.tsv` — one row per targeton, with local/global/shrunk fit parameters and tier counts
-* If `--plot_dir` is set: 2 diagnostic PNGs per targeton (`<targeton>_anchor_fit.png` — all variants; `<targeton>_missense_anchor_fit.png` — missense only), showing the shrunk fit (solid) vs gene-wide fit (dotted) and the shrunk 95th-percentile LOF threshold
+* If `--plot_dir` is set: 2 diagnostic PNGs per targeton (`<targeton>_anchor_fit.png` — all variants; `<targeton>_missense_anchor_fit.png` — missense only), showing the shrunk fit (solid) vs gene-wide fit (dotted) and the shrunk 95th-percentile PTV threshold
 
 #### Notes:
 * Rows with a pre-existing `"enriched"` status (from `stat_pos_raw` by default) are passed through as `enriched` and excluded from the anchor-fitting pool.
@@ -199,7 +211,7 @@ Full flag list: run with `--help`. Run once per reference condition (Day4, Plasm
 ### STEP SIX: Choose a reference condition per targeton
 
 #### Background:
-[`qc_signal_noise_metrics_with_composite.R`](Code/pipeline/qc_signal_noise_metrics_with_composite.R) computes per-targeton signal-to-noise QC metrics (median |Z|, control neutrality, positional-bias LOESS residual diagnostic, Cohen's d for LOF vs controls) for the Day4- and Plasmid-referenced runs of STEPS FOUR/FIVE, and ranks the two references per targeton via a hierarchical/cascading composite score, to decide which one's output should actually be used downstream.
+[`qc_signal_noise_metrics_with_composite.R`](Code/pipeline/qc_signal_noise_metrics_with_composite.R) computes per-targeton signal-to-noise QC metrics (median |Z|, control neutrality, positional-bias LOESS residual diagnostic, Cohen's d for PTV vs controls) for the Day4- and Plasmid-referenced runs of STEPS FOUR/FIVE, and ranks the two references per targeton via a hierarchical/cascading composite score, to decide which one's output should actually be used downstream.
 
 #### Requirements:
 * R package `optparse`
@@ -218,9 +230,6 @@ Rscript Code/pipeline/qc_signal_noise_metrics_with_composite.R \
 * `<out_prefix>.metrics.tsv` — per-targeton/per-reference metrics and composite rank
 * `<out_prefix>.median_abs_z.png`, `.median_abs_z_functional.png`, `.composite_score.png`
 
-#### Notes:
-* In practice, this resolved to the Day4 reference for every targeton screened — i.e. Plasmid never won the comparison for this gene. All downstream steps in this README therefore assume Day4-referenced output.
-* `--tie_margin_positional_bias` (default `0.02`) was chosen from the observed gap sizes in one real 22-targeton run (smallest genuine decisive gap 0.0096, the one problem case 0.008) — re-check this value against your own dataset's gap distribution before trusting the ranking on new data, per the flag's own help text.
 
 ---
 
