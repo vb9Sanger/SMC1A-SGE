@@ -351,10 +351,6 @@ into a later step:
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
-* [`merge_genedx_clinvar.py`](Code/investigations/merge_genedx_clinvar.py) — merges GeneDx's de
-  novo SMC1A cohort (patient-level HPO phenotype terms + diagnostic status) against the ClinVar
-  summary for a phenotype-informed view. **The phenotype keyword classifier here is an explicit
-  first pass** (see the script's own header) — treat any number from this as preliminary.
 
 ---
 
