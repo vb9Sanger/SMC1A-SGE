@@ -341,13 +341,21 @@ into a later step:
   assay's functional calls, gene-wide, stratified by consequence class (Spearman correlation,
   Kruskal-Wallis across `anchor_tier`, and AUC + sensitivity-at-Youden's-J treating `anchor_tier`
   as ground truth).
+* [`cdls_vs_dee85_missense_predictors.R`](Code/investigations/cdls_vs_dee85_missense_predictors.R) —
+  follow-up to `insilico_concordance.R`, restricted to the curated missense variants from
+  STEP SEVEN: for `CdLS_pathogenic` vs `DEE85_pathogenic` missense variants specifically, do
+  the predictor scores (SIFT, PolyPhen, CADD, REVEL) separate the two disease groups the way
+  the assay's own depletion tier does? Answer: no — none of the four predictors distinguish
+  the groups (Mann-Whitney p = 0.32-0.89; CADD nominally p=0.029 but on near-identical
+  medians), while the assay itself sharply does (0% of CdLS missense strongly depleting vs
+  64% of DEE85 missense). Predictors score "is this damaging", not "damaging by which
+  mechanism" — this is a concrete demonstration of that distinction, using the disease
+  groups this project's own curation established. Joins `06_join_assay.py`'s missense
+  analysis table (STEP SEVEN) with `insilico_concordance.R`'s merged predictor table on
+  oligo name + targeton.
 * [`cassette_exon_consequence_analysis.py`](Code/investigations/cassette_exon_consequence_analysis.py) —
   tests whether cassette-exon-annotated exons show different depletion behaviour for synonymous
   and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact).
-* [`nondepleting_plp_vs_synonymous.py`](Code/investigations/nondepleting_plp_vs_synonymous.py) —
-  assay-sensitivity check: are ClinVar P/LP variants the assay calls "no impact" truly
-  indistinguishable from synonymous controls, or is there a subtle residual signal below the
-  calling threshold?
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
@@ -440,5 +448,12 @@ stratified by CdLS vs DEE. Given the condition-labelling issues above, read this
 demonstration of ClinVar's limits as ground truth for this gene — not as this project's primary
 validation, which is the (currently in-progress) clinical calibration against the curated truth
 set in STEP SEVEN.
+
+#### Assay sensitivity check
+
+[`nondepleting_plp_vs_synonymous.py`](Code/investigations/nondepleting_plp_vs_synonymous.py) —
+are ClinVar P/LP variants the assay calls "no impact" truly indistinguishable from synonymous
+controls, or is there a subtle residual signal below the calling threshold? Uses
+`clinvar_variants_summary.tsv` from the intersection above.
 
 ---
