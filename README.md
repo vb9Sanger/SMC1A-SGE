@@ -256,6 +256,7 @@ contains that curation pipeline and its join against this screen's results, run 
 | `06_join_assay.py` | joins the curated set to the SGE screen results; decodes each oligo from its own sequence, detects the library's fixed background edits, and reports per variant whether it was screened |
 | `07_make_data_dictionary.py` | regenerates a data dictionary from `smc1a_schema.py` |
 | `08_audit_curated_set.py` | independent audit of the curated set; exits non-zero on failure |
+| `09_calibrate_sensitivity_oddspath.py` | formal sensitivity/specificity/OddsPath calibration against the curated set (see below) |
 
 `smc1a_lib.py` / `smc1a_schema.py` are shared library code, not run directly.
 
@@ -277,9 +278,54 @@ export SMC1A_CONTACT="you@example.org"     # sent to the Ensembl REST API, as it
 Network access is needed on first run for the Ensembl REST API; responses are cached so
 later runs are offline and deterministic.
 
-**Planned, not yet done:** formal clinical validation/calibration of the assay against this
-curated set — sensitivity, specificity, and OddsPath, following the Brnich et al. 2019 /
-ClinGen SVI framework — is intended but has not been carried out yet.
+#### Sensitivity/specificity/OddsPath calibration
+
+`09_calibrate_sensitivity_oddspath.py` computes, from `06_join_assay.py`'s output: per-group
+depletion rate with Clopper-Pearson 95% CIs, and pairwise odds ratios (Haldane-Anscombe
+corrected at zero cells) with 95% CIs and Fisher's exact p, each mapped to its ClinGen SVI
+OddsPath evidence-strength tier (Very Strong / Strong / Moderate / Supporting / none),
+following Brnich et al. 2019's default thresholds. Computed separately per `curation_group`
+(default: `CdLS_pathogenic`, `DEE85_pathogenic` vs `Exclude_Benign`) rather than pooling all
+pathogenic variants together, since CdLS and DEE85 differ in mechanism (dominant-negative vs
+loss-of-function) and a single pooled figure would blend two very different evidence
+strengths into one misleading average.
+
+```bash
+python Code/variant_curation/09_calibrate_sensitivity_oddspath.py \
+  --join_tsv assay_join_all.tsv \
+  --outdir sensitivity_results/
+```
+
+De-duplicates to one row per `variant_key` before computing anything (`--on_duplicate`
+controls how a variant matched by more than one oligo with discordant calls is resolved —
+see the script's own docstring, in particular the note on `position_only_verify_manually`
+rows needing manual verification before use, not automatic resolution).
+
+Three further options widen what a single run can compare, each reported alongside —
+never instead of — the base per-group numbers:
+
+* `--extra_group_tsv NAME=path.tsv` (repeatable) — adds a group read from any plain
+  `(variant_key, anchor_call)` TSV instead of `--join_tsv`'s `curation_group` column, e.g.
+  additional benign controls from ClinVar (see
+  [`extract_clinvar_benign_controls.py`](Code/investigations/extract_clinvar_benign_controls.py),
+  STEP TEN) rather than only the curated set's own small `Exclude_Benign` group. A group
+  is treated as playing the benign/control role in reporting if `"benign"` appears in its
+  name (case-insensitive).
+* `--pool NAME=GROUP1,GROUP2,...` (repeatable) — adds a virtual group whose count is the
+  sum of already-computed groups' counts, e.g. `Combined_PLP=CdLS_pathogenic,DEE85_pathogenic`
+  or a pooled curated+ClinVar benign reference — the mechanism for "what if you combine
+  the two mechanisms/sources," done transparently rather than by hand.
+* `--consequence_filter CLASS [CLASS ...]` — restricts every group (pathogenic, benign,
+  and any `--extra_group_tsv`, which must then also carry a `consequence_class` column) to
+  the given consequence classes before counting, e.g.
+  `--consequence_filter missense inframe_deletion inframe_insertion` to calibrate
+  specifically on variants where annotation alone can't already call pathogenicity —
+  excluding PTVs, whose classification often doesn't need functional evidence in the first
+  place (ACMG PVS1), so a calibration that includes them risks non-independent,
+  double-counted evidence if later stacked with a PVS1 call for the same variant.
+
+Actual sensitivity/specificity/OddsPath figures belong in the thesis write-up, not this
+README, per the "no results in this repo" policy elsewhere in this document.
 
 ---
 
@@ -446,14 +492,34 @@ flag never silently disagree.
 SGE classification approaches against ClinVar P/LP vs B/LB calls (sensitivity/specificity/AUC),
 stratified by CdLS vs DEE. Given the condition-labelling issues above, read this as a
 demonstration of ClinVar's limits as ground truth for this gene — not as this project's primary
-validation, which is the (currently in-progress) clinical calibration against the curated truth
-set in STEP SEVEN.
+validation, which is the clinical calibration against the curated truth set in STEP SEVEN.
 
 #### Assay sensitivity check
 
 [`nondepleting_plp_vs_synonymous.py`](Code/investigations/nondepleting_plp_vs_synonymous.py) —
 are ClinVar P/LP variants the assay calls "no impact" truly indistinguishable from synonymous
 controls, or is there a subtle residual signal below the calling threshold? Uses
-`clinvar_variants_summary.tsv` from the intersection above.
+`clinvar_variants_summary.tsv` from the intersection above, so it lives here rather than under
+STEP NINE's general supporting analyses, despite testing the assay's own sensitivity rather
+than ClinVar's reliability.
 
----
+#### Widening the STEP SEVEN calibration with ClinVar
+
+Two further scripts connect this step back to STEP SEVEN's calibration, using ClinVar data for
+purposes that don't depend on its disease-condition attribution being reliable:
+
+* [`extract_clinvar_benign_controls.py`](Code/investigations/extract_clinvar_benign_controls.py) —
+  pulls every ClinVar Benign/Likely benign call for the gene region, joined to the assay's own
+  `anchor_tier` (via `clinvar_variants_summary.tsv`) and to ClinVar's `CLNREVSTAT` review-status
+  field (fetched directly from the VCF, since the intersect script above never captures it), for
+  use as an `--extra_group_tsv` benign reference in `09_calibrate_sensitivity_oddspath.py` —
+  widening it well beyond the curated set's own small `Exclude_Benign` group. Defensible because
+  disease-condition attribution (what this step found unreliable) doesn't apply to a benign call;
+  `--min_review_tier multi_submitter` is available for a stricter, smaller, higher-confidence cut.
+* [`reclassify_clinvar_vus.py`](Code/investigations/reclassify_clinvar_vus.py) — applies
+  STEP SEVEN's calibrated OddsPath tiers to the gene's actual ClinVar Uncertain-significance
+  calls, by consequence class: PTV/splice-class VUS that deplete borrow the DEE85-calibrated
+  tier, missense VUS that deplete borrow the CdLS-calibrated tier (defensible since those are the
+  same consequence classes each calibration group is itself built from, not an extrapolation
+  beyond them), and everything else — inframe indels, enriched calls, non-depleting calls of any
+  class — is left unmapped and flagged for individual manual review rather than forced into a
