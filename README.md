@@ -417,6 +417,19 @@ into a later step:
   missense variant (`p.Glu502Lys`) sits at 0.29 — indistinguishable from its own group's
   non-depleting background. Directionally consistent with mechanism separation throughout,
   though the depleting-group sample sizes are too small to reach significance individually.
+* [`annotate_dee85_missense_domain_hotspot.py`](Code/investigations/annotate_dee85_missense_domain_hotspot.py) —
+  a literature review of the CdLS/DEE85 mechanism literature turned up a specific,
+  independently-replicated claim (Baranano et al. 2022; Bozarth et al. 2023; Di Nardo
+  et al. 2026): the small non-loss-of-function (missense/in-frame) subset of DEE85
+  variants clusters in SMC1A's N-/C-terminal ATPase head domain, rather than being
+  scattered like the loss-of-function majority. This script cross-checks that claim
+  against the curated set's own 11 DEE85_pathogenic missense variants and adds three
+  columns (`literature_domain_hotspot`, `_domain`, `_source`) to
+  `smc1a_variants_curated.tsv`/`smc1a_variants_all.tsv` recording the result — 5/11
+  fall in the cited head domain (2 of them the literally-identical variants reported
+  in Baranano 2022), including 4/7 of the group's assay-depleting variants. `VARIANT_COLS`
+  in `06_join_assay.py` (STEP SEVEN) was extended so these columns carry through to
+  `assay_join_all.tsv` as well.
 * [`cassette_exon_consequence_analysis.py`](Code/investigations/cassette_exon_consequence_analysis.py) —
   tests whether cassette-exon-annotated exons show different depletion behaviour for synonymous
   and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact). Its
