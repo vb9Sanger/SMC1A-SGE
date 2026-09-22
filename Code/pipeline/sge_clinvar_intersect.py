@@ -104,6 +104,8 @@ Requirements:
     bcftools on PATH (for VCF reading)
 """
 
+from __future__ import annotations
+
 import argparse
 import gzip
 import os
