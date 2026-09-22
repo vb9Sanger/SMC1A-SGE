@@ -399,12 +399,42 @@ into a later step:
   groups this project's own curation established. Joins `06_join_assay.py`'s missense
   analysis table (STEP SEVEN) with `insilico_concordance.R`'s merged predictor table on
   oligo name + targeton.
+* [`cdls_dee85_missense_ddg.py`](Code/investigations/cdls_dee85_missense_ddg.py) — a more
+  mechanistic follow-up to the above: if depletion genuinely separates CdLS
+  (dominant-negative) from DEE85 (loss-of-function), a predicted change in protein
+  stability (ΔΔG) should show the same separation for a different reason — DEE85
+  depletion via unfolding, CdLS depletion via a specific functional/interaction defect
+  that need not destabilize the fold. ΔΔG itself is computed externally by
+  [ThermoMPNN](https://github.com/Kuhlman-Lab/ThermoMPNN) (MIT license; installs without
+  admin rights via `uv`, no FoldX/Rosetta license needed) run once as a full
+  site-saturation scan against the AlphaFold model of human SMC1A (UniProt Q14683); this
+  script reads that scan's output, maps each curated variant's HGVS protein notation onto
+  it (verifying the wild-type residue matches before accepting a lookup), and compares
+  groups. Whole-group CdLS-vs-DEE85 ΔΔG is not significant (p=0.20) — same conclusion as
+  the predictor comparison above — but the assay-depleting subset of each group tells a
+  cleaner story: DEE85's 7 depleting missense variants trend clearly destabilizing (median
+  ΔΔG 1.13 kcal/mol) versus its 4 non-depleting ones (0.46), while CdLS's one depleting
+  missense variant (`p.Glu502Lys`) sits at 0.29 — indistinguishable from its own group's
+  non-depleting background. Directionally consistent with mechanism separation throughout,
+  though the depleting-group sample sizes are too small to reach significance individually.
 * [`cassette_exon_consequence_analysis.py`](Code/investigations/cassette_exon_consequence_analysis.py) —
   tests whether cassette-exon-annotated exons show different depletion behaviour for synonymous
-  and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact).
+  and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact). Its
+  `--exon_events_tsv` input (which exons are UCSC-annotated cassette exons) is built by
+  [`build_smc1a_exon_splice_events_table.py`](Code/investigations/build_smc1a_exon_splice_events_table.py)
+  from UCSC's "Alt Events" track (`knownAlt`), fetched live via the UCSC REST API and
+  intersected against each exon's genomic boundaries — no manual UCSC Table Browser export
+  needed. Result: splice-region variants deplete significantly more often in cassette exons
+  than non-cassette exons (32.6% vs 21.7%, Fisher's OR=1.75, p=6.5×10⁻¹³; confirmed on the
+  underlying continuous z-scores, Mann-Whitney p=6.1×10⁻⁸), while synonymous variants in the
+  same exons show no such difference (p=0.60) — the effect is specific to variants that
+  actually perturb a splice signal, not a general property of these exons tolerating more
+  or less variation overall.
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
+
+---
 
 ---
 
