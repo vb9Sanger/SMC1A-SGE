@@ -171,6 +171,8 @@ VARIANT_COLS = [
     "n_individuals", "n_independent_probands", "n_families", "is_recurrent",
     "sex_M", "sex_F", "sex_unknown",
     "residue_hotspot", "residue_hotspot_residue",
+    "literature_domain_hotspot", "literature_domain_hotspot_domain",
+    "literature_domain_hotspot_source",
     "functional_evidence", "episignature_result",
     "n_sources", "sources", "pmids",
     "resolution_status", "notes",
