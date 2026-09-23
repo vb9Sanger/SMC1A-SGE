@@ -157,10 +157,7 @@ a confirmed functional outcome. The scripts, their CLI flags, and their output c
 all name this class `LOF` (e.g. `anchor_mu_lof`, `--lof_label`), for historical reasons;
 this README uses **PTV** in prose instead, reserving "loss-of-function" for the actual
 functional/mechanistic claim (which is what the assay's `anchor_tier` result speaks to,
-not what goes into building the anchor). The distinction matters concretely: not every
-PTV causes loss of function (NMD escape being the clearest exception, handled explicitly
-below), so treating the annotation label and the functional outcome as interchangeable
-would beg the question this step's classification is meant to test.
+not what goes into building the anchor). 
 
 Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/pipeline/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
 
