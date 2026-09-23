@@ -321,9 +321,6 @@ never instead of — the base per-group numbers:
   place (ACMG PVS1), so a calibration that includes them risks non-independent,
   double-counted evidence if later stacked with a PVS1 call for the same variant.
 
-Actual sensitivity/specificity/OddsPath figures belong in the thesis write-up, not this
-README, per the "no results in this repo" policy elsewhere in this document.
-
 ---
 
 ### STEP EIGHT: Intersect with gnomAD and plot
