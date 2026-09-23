@@ -10,17 +10,39 @@ would support moving toward a PS3/BS3 call, and which it can't speak to.
 The mapping is deliberately conservative, not automatic-for-everything:
 
   - PTV/splice-class VUS (LOF, Splice_Variant, Splice_Polypyrimidine_Tract_
-    Variant) that deplete -> the DEE85_pathogenic-calibrated OddsPath tier.
-    Defensible because DEE85_pathogenic's own calibration group is itself a
-    mix of frameshift/nonsense/splice_donor/splice_region (73%/10%/16%
-    missense), so this is applying the tier to the same mechanism classes
-    it was computed from, not extrapolating beyond them.
+    Variant) that deplete -> the DEE85_pathogenic-calibrated OddsPath tier,
+    read from the FULL (consequence-unrestricted) calibration run. This is
+    the only option available for this class: a matched PTV/splice-only
+    benign reference is not constructible for this gene -- ClinVar has zero
+    variants classified Benign/Likely benign in the actual PTV consequence
+    classes (nonsense, frameshift, splice_acceptor, splice_donor), for the
+    biologically expected reason that a true truncating variant essentially
+    never gets classified benign in a haploinsufficiency-sensitive gene.
+    Checked directly (2026-09-23): restricting the benign reference to
+    these classes collapses it to 0 ClinVar rows and 7 curated rows, all
+    the softer `splice_region` class rather than a true PTV, far too few to
+    calibrate. So the unrestricted comparison is used here of necessity,
+    not as an unexamined shortcut -- and it also happens to be a good match
+    already, since DEE85_pathogenic's own calibration group is itself ~83%
+    frameshift/nonsense/splice (Brnich et al. 2019's recommendation that
+    "controls should also be relevant to... the type of variant under
+    consideration" is satisfied on the pathogenic side even though the
+    benign side can't be restricted the same way).
   - Missense VUS that deplete -> the CdLS_pathogenic-calibrated OddsPath
-    tier. Same logic, but note CdLS's own calibration is weaker (see
-    --or_tsv row used) -- a depleting missense VUS is still informative
-    (a "depleted" call remains highly specific even for CdLS, see the
-    write-up's OR-vs-sensitivity distinction), just less strongly than a
-    depleting PTV/splice VUS.
+    tier, read from a SEPARATE, missense/in-frame-restricted calibration
+    run (--missense_or_tsv), not the full-group run. Brnich et al. 2019 (the
+    OddsPath framework this whole calibration follows) explicitly
+    recommends matching reference-control consequence class to the variant
+    class under interpretation ("missense controls for evaluating missense
+    variants of uncertain significance") -- unlike the PTV/splice case, a
+    matched missense/in-frame benign reference *is* constructible here
+    (n=14: 3 curated + 11 ClinVar), so the matched figure is used rather
+    than the full-group one. That comparison is markedly weaker than the
+    full-group figure (OR=2.6, 95% CI 0.1-54.2, not significant, vs the
+    full-group OR=26.1) -- reported plainly rather than silently upgraded,
+    since misrepresenting an unmatched, more optimistic figure as if it
+    were the properly-matched one would be exactly the confound Brnich et
+    al.'s recommendation is meant to avoid.
   - Inframe deletion/insertion VUS -> NOT mapped to either tier. They were
     lumped into "not missense" in earlier quick cuts of the truth set, but
     mechanistically they don't clearly belong with true PTVs (frame is
@@ -47,7 +69,16 @@ Inputs
                  Needs: clnsig_norm, Summary_Plot, anchor_tier,
                  pos_adj_log2FoldChange_raw, HGVSp, variant identifying
                  columns.
---or_tsv         odds_ratios.tsv from 09_calibrate_sensitivity_oddspath.py.
+--or_tsv         odds_ratios.tsv from 09_calibrate_sensitivity_oddspath.py's
+                 FULL (consequence-unrestricted) run. Used for the
+                 PTV/splice mapping.
+--missense_or_tsv
+                 odds_ratios.tsv from a separate run of
+                 09_calibrate_sensitivity_oddspath.py with
+                 `--consequence_filter missense inframe_deletion
+                 inframe_insertion`. Used for the missense mapping. Defaults
+                 to --or_tsv if not given (not recommended -- see docstring
+                 above on why the two should differ).
 --ptv_splice_comparison
                  which row of --or_tsv to use for PTV/splice-class VUS,
                  given as "GROUP_A|GROUP_B" matching that row's group_a/
@@ -55,8 +86,8 @@ Inputs
                  group should be group_a). Example:
                  "DEE85_pathogenic|Combined_Benign"
 --missense_comparison
-                 same, for missense-class VUS. Example:
-                 "CdLS_pathogenic|Combined_Benign"
+                 same, but a row of --missense_or_tsv, for missense-class
+                 VUS. Example: "CdLS_pathogenic|Combined_Benign"
 --output
 
 Usage
@@ -64,6 +95,7 @@ Usage
     python reclassify_clinvar_vus.py \\
         --summary_tsv clinvar_variants_summary.tsv \\
         --or_tsv sensitivity_results/odds_ratios.tsv \\
+        --missense_or_tsv sensitivity_missense_only/odds_ratios.tsv \\
         --ptv_splice_comparison "DEE85_pathogenic|Combined_Benign" \\
         --missense_comparison "CdLS_pathogenic|Combined_Benign" \\
         --output vus_reclassification.tsv
@@ -111,14 +143,25 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--summary_tsv", required=True)
-    ap.add_argument("--or_tsv", required=True)
+    ap.add_argument("--or_tsv", required=True,
+                     help="Full (consequence-unrestricted) odds_ratios.tsv, for PTV/splice VUS")
+    ap.add_argument("--missense_or_tsv", default=None,
+                     help="Missense/in-frame-restricted odds_ratios.tsv, for missense VUS "
+                          "(defaults to --or_tsv if omitted -- not recommended, see docstring)")
     ap.add_argument("--ptv_splice_comparison", required=True, metavar="GROUP_A|GROUP_B")
     ap.add_argument("--missense_comparison", required=True, metavar="GROUP_A|GROUP_B")
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
 
+    missense_or_tsv = args.missense_or_tsv or args.or_tsv
+    if args.missense_or_tsv is None:
+        print("WARNING: --missense_or_tsv not given, falling back to --or_tsv for the "
+              "missense mapping too. This uses an unmatched (consequence-unrestricted) "
+              "benign reference for missense VUS, which Brnich et al. 2019 recommends "
+              "against -- pass --missense_or_tsv explicitly.", file=sys.stderr)
+
     ptv_cal = load_comparison(args.or_tsv, args.ptv_splice_comparison)
-    missense_cal = load_comparison(args.or_tsv, args.missense_comparison)
+    missense_cal = load_comparison(missense_or_tsv, args.missense_comparison)
 
     for label, cal in [("PTV/splice", ptv_cal), ("missense", missense_cal)]:
         flag = " ** 95% CI CROSSES 1 -- do not treat as reliable evidence **" if cal["ci_crosses_one"] else ""
