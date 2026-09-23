@@ -361,13 +361,6 @@ By default only `FILTER=PASS` gnomAD records are kept; add `--include_non_pass` 
 * `gnomad_match_rate_by_tier.png` — bar chart of % gnomAD-matched per tier
 * `gnomad_af_by_tier.png` — boxplot of log10(pooled AF) per tier, gnomAD-matched variants only
 
-#### Notes:
-* Verify gnomAD INFO field names against your actual VCFs before trusting the output (see Background above).
-* The `TARGETON_EXON` dict (targeton → exon number) used for the cross-targeton summary is
-  hardcoded here and **separately duplicated** in `sge_clinvar_intersect.py` (STEP TEN,
-  same dict, same values) — there's no shared source of truth, so if the exon map ever
-  changes, both copies need updating by hand.
-
 ---
 
 ### STEP NINE: In silico predictor concordance and other supporting analyses
