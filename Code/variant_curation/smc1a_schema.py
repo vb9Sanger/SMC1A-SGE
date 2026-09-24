@@ -67,7 +67,7 @@ VARIANTS = [
       ("targetons_design", "list", "Targeton(s) whose **design window** contains the variant -- i.e. where oligos were systematically designed. The operative field."),
       ("targetons_amplicon", "list", "Targeton(s) whose sequenced amplicon contains the variant. Wider than the design window; amplicon-only means sequenced but no oligo designed."),
       ("in_design_window", "bool", "True if the variant falls in at least one design window."),
-      ("targeton_screening_status", "string", "`screened`, `screening_in_progress` (EXTP -- results pending, **not** absent from the library), or `not_in_design_window`."),
+      ("targeton_screening_status", "string", "`screened`, `not_screened` (CQEJ and NLVE -- designed and in the library, but not yet screened, so no results exist), or `not_in_design_window`. Pipe-joined over a variant's design-window targetons, so a variant spanning a screened and an unscreened targeton reads `not_screened|screened`; split on `|` rather than substring-matching, since `not_screened` contains `screened`."),
       ("assay_testable_now", "bool", "True only if at least one containing targeton has completed screening."),
      ]),
 
@@ -209,6 +209,23 @@ VARIANTS = [
          ("residue_hotspot_n_variants", "int", "Number of distinct variants altering this residue."),
          ("residue_hotspot_groups", "str", "Analysis arms the co-hitting variants fall into; a residue spanning both arms is directly relevant to the CdLS/DEE85 mechanism contrast."),
          ("residue_hotspot_partners", "str", "The other variant(s) altering this residue."),
+     ]),
+    ("Literature-reported domain hotspot",
+     "Whether a DEE85_pathogenic missense variant sits in the N-/C-terminal "
+     "ATPase head domain that the literature reports as where non-loss-of-"
+     "function (missense/in-frame) DEE85 variants specifically cluster "
+     "(Baranano et al. 2022; Bozarth et al. 2023; Di Nardo et al. 2026). "
+     "Unlike every other column here these are **not** written by step 05: "
+     "they are added afterwards by "
+     "`Code/investigations/annotate_dee85_missense_domain_hotspot.py`, which "
+     "must be re-run against both processed tables after any registry rebuild "
+     "or they are silently lost. Only the 11 DEE85_pathogenic missense "
+     "variants are evaluated; every other row is False with the domain and "
+     "source columns blank, since the claim was not assessed for them.",
+     [
+         ("literature_domain_hotspot", "bool", "A specific paper explicitly places this variant in the N- or C-terminal ATPase head domain. Variants the literature discusses but places in the coiled-coil arm, outside the reported cluster, are False."),
+         ("literature_domain_hotspot_domain", "str", "The domain as the citing paper describes it, e.g. `N-terminal ATPase head (aa 4-148)`."),
+         ("literature_domain_hotspot_source", "str", "The citation placing it there, including the basis (cohort observation or molecular-dynamics modelling)."),
      ]),
     ("Coordinate provenance",
      "Whether the cDNA description was read from the source or derived from a "

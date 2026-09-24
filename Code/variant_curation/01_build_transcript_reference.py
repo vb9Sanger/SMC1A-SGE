@@ -292,16 +292,34 @@ def v4_targetons(model):
             d = dict(zip(h, line.strip().split("\t")))
             regions[d["Targeton_ID"]] = d
 
-    # Screening status per targeton, set from information supplied for this study.
-    # Absence from targeton_regions.tsv does NOT mean a targeton was dropped:
-    # EXTP is confirmed real and still being screened, so variants falling in
-    # it must be marked "results pending", which is a different curation state
-    # from "not in the library".
+    # Screening status per targeton, set from information supplied for this
+    # study. A targeton not listed here defaults to "screened".
+    #
+    # Corrected 2026-09-24. This table was previously inverted on all three of
+    # the targetons it is supposed to describe, because it listed the one
+    # targeton that was pending and relied on the default for everything else:
+    #   - EXTP was listed "screening_in_progress" from 2026-09-10. It has since
+    #     been screened and its results are in the classifier output, so it now
+    #     takes the "screened" default and is no longer listed.
+    #   - CQEJ and NLVE have NOT been screened and have no classifier output,
+    #     but were silently inheriting the "screened" default -- the opposite
+    #     of the truth. They are now listed explicitly.
+    # Ground truth is which targetons have a results file in
+    # classifier_run/classifier_results/D4_ref/: 25 of the 27 designed
+    # targetons, i.e. everything except CQEJ and NLVE.
     SCREENING_STATUS = {
-        "EXTP": ("screening_in_progress",
-                 "confirmed real 2026-09-10; screening ongoing, no "
-                 "results yet"),
+        "CQEJ": ("not_screened",
+                 "exon 6, second tiling window; designed but not screened -- "
+                 "no results in the classifier output as of 2026-09-24"),
+        "NLVE": ("not_screened",
+                 "exon 23; designed but not screened -- no results in the "
+                 "classifier output as of 2026-09-24"),
     }
+    # targeton_regions.tsv predates EXTP being added to the design, so EXTP is
+    # in the manifest but absent from that file. That is staleness in the
+    # regions file, not a statement about whether EXTP was screened -- the two
+    # were previously conflated through SCREENING_STATUS.
+    REGIONS_FILE_KNOWN_ABSENT = {"EXTP"}
     # IZFR is an obsolete name for APDY, confirmed 2026-09-10 -- the same
     # targeton, not two. The manifest still uses the old name, so its row is
     # RENAMED (not dropped: it is the only source of APDY's coordinates).
@@ -319,12 +337,12 @@ def v4_targetons(model):
 
     only_manifest = sorted(set(manifest) - set(regions))
     only_regions = sorted(set(regions) - set(manifest))
-    expected = {t for t, (st, _) in SCREENING_STATUS.items()
-                if st == "screening_in_progress"}
     check("targeton_regions.tsv and SMC1A_info.xlsx agree, allowing for "
-          "targetons still being screened",
-          not (set(only_manifest) - expected) and not only_regions,
-          f"manifest-only={only_manifest} (expected-pending={sorted(expected)}) "
+          "targetons known to postdate the regions file",
+          not (set(only_manifest) - REGIONS_FILE_KNOWN_ABSENT)
+          and not only_regions,
+          f"manifest-only={only_manifest} "
+          f"(known-absent-from-regions={sorted(REGIONS_FILE_KNOWN_ABSENT)}) "
           f"regions-only={only_regions}")
 
     # Reconcile by amplicon coordinates: a renamed targeton keeps its amplicon.
@@ -346,11 +364,13 @@ def v4_targetons(model):
                 f"the manifest and its amplicon {key[0]}-{key[1]} matches no "
                 f"manifest entry -- needs manual reconciliation.")
     for tid in only_manifest:
-        st, why = SCREENING_STATUS.get(tid, ("unknown", "not yet confirmed"))
+        st, why = SCREENING_STATUS.get(tid, ("screened", "screened"))
         say(f"  NOTE: targeton {tid} is in the manifest but absent from "
             f"targeton_regions.tsv (exon {manifest[tid]['exon']}, "
             f"amplicon {manifest[tid]['amplicon_start']}-{manifest[tid]['amplicon_end']}). "
             f"Screening status: **{st}** -- {why}.")
+    for tid, (st, why) in sorted(SCREENING_STATUS.items()):
+        say(f"  NOTE: targeton {tid} screening status **{st}** -- {why}.")
 
     out = []
     for tid, m in manifest.items():

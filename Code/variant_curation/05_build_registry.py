@@ -1417,8 +1417,11 @@ def main():
     for s_, n in Counter(v["targeton_screening_status"] for v in curated).most_common():
         say(f"| {s_} | {n} |")
     say()
-    say("`screening_in_progress` means EXTP: results pending, **not** absent "
-        "from the library.")
+    say("`not_screened` means CQEJ (exon 6, second tiling window) or NLVE "
+        "(exon 23): designed and present in the library, but not yet "
+        "screened, so no assay result exists. A variant carrying it is not "
+        "excluded from the curated set -- it is simply not assay-testable "
+        "yet, and `assay_testable_now` is False.")
     say()
 
     say("## Cross-source duplication")

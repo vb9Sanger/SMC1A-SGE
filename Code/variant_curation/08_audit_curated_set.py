@@ -28,6 +28,10 @@ rows = list(csv.DictReader(open(os.path.join(ROOT, "data", "processed", "smc1a_v
 allrows = list(csv.DictReader(open(os.path.join(ROOT, "data", "processed", "smc1a_variants_all.tsv")),
                               delimiter="\t"))
 fail = defaultdict(list)
+# Reported in the audit output but does not affect the exit status: true
+# states of the world that are not curation defects. Kept visible rather than
+# silent, so a reader sees them without the build failing on them.
+note = defaultdict(list)
 
 
 def codon_aa(n):
@@ -198,12 +202,24 @@ for r in rows:
             f"{r['hgvs_c_mane']} ({cls})")
 
 # A14 every variant is assay-addressable
+#
+# Two different things, deliberately separated (2026-09-24). Having no design
+# window is a curation defect and fails the audit. Sitting in a design window
+# whose targeton has not been screened yet is a true, expected state of the
+# world -- CQEJ and NLVE are designed but unscreened -- so it is reported
+# loudly but does not fail the build, which would otherwise exit non-zero on a
+# fact that is not a defect and cannot be fixed by curation.
+#
+# The status test splits on "|" rather than using `in` on the raw string: the
+# status is a pipe-joined set over a variant's targetons, and a substring test
+# matches "not_screened" as though it were "screened".
 for r in rows:
     if not (r.get("targetons_design") or "").strip():
         fail["A14 no design-window targeton"].append(r["hgvs_c_mane"])
     st = r.get("targeton_screening_status") or ""
-    if "screened" not in st:
-        fail["A14 targeton not screened"].append(f"{r['hgvs_c_mane']} ({st})")
+    if "screened" not in set(st.split("|")):
+        note["A14 targeton not screened (not a defect)"].append(
+            f"{r['hgvs_c_mane']} ({st})")
 
 # A15 HGVS descriptions are well-formed
 for r in rows:
@@ -218,7 +234,6 @@ print("# Final audit of the curated set")
 print()
 print(f"variants audited: **{len(rows)}**")
 print()
-CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11"]
 if not fail:
     print("All checks PASS -- no disagreement between the delivered file and an "
           "independent re-derivation from the reference.")
@@ -226,6 +241,15 @@ else:
     for k in sorted(fail):
         print(f"**{k}: {len(fail[k])}**")
         for x in fail[k][:8]:
+            print(f"  - {x}")
+        print()
+
+if note:
+    print("## Reported, not failures")
+    print()
+    for k in sorted(note):
+        print(f"**{k}: {len(note[k])}**")
+        for x in note[k][:8]:
             print(f"  - {x}")
         print()
 
