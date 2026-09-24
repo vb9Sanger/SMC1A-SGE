@@ -157,7 +157,10 @@ a confirmed functional outcome. The scripts, their CLI flags, and their output c
 all name this class `LOF` (e.g. `anchor_mu_lof`, `--lof_label`), for historical reasons;
 this README uses **PTV** in prose instead, reserving "loss-of-function" for the actual
 functional/mechanistic claim (which is what the assay's `anchor_tier` result speaks to,
-not what goes into building the anchor). 
+not what goes into building the anchor). The distinction matters concretely: not every
+PTV causes loss of function (NMD escape being the clearest exception, handled explicitly
+below), so treating the annotation label and the functional outcome as interchangeable
+would beg the question this step's classification is meant to test.
 
 Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/pipeline/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
 
@@ -257,6 +260,28 @@ contains that curation pipeline and its join against this screen's results, run 
 
 `smc1a_lib.py` / `smc1a_schema.py` are shared library code, not run directly.
 
+#### Two things the step numbering doesn't tell you
+
+**`annotate_dee85_missense_domain_hotspot.py` runs between 05 and 06, not after
+everything.** Step 05 does not write the three `literature_domain_hotspot*` columns; that
+investigation script (STEP NINE) adds them afterwards, to *both*
+`smc1a_variants_curated.tsv` and `smc1a_variants_all.tsv`. A registry rebuild drops them
+silently — nothing errors, the columns are simply gone, and `06_join_assay.py` then carries
+a narrower table through to the join. Re-run it after any rebuild of step 05, before step
+06. The full order is `01` → `05` → annotate → `06` → `07` → `08`.
+
+**Which targetons are screened is determined by the classifier output, not by a flag.** A
+targeton counts as screened iff it has a results file in the classifier's output directory:
+25 of the 27 designed targetons, i.e. all except **CQEJ** (exon 6, second tiling window) and
+**NLVE** (exon 23), which are designed and present in the library but not screened. Those
+two carry `screening_status = not_screened` in `01_build_transcript_reference.py`, and
+variants whose only design window is one of them get `assay_testable_now = False`. Note that
+`targeton_screening_status` is pipe-joined over a variant's targetons, so a variant spanning
+a screened and an unscreened targeton reads `not_screened|screened` — split on `|` rather
+than substring-matching, since `not_screened` contains `screened`. `08_audit_curated_set.py`
+reports such variants without failing: an unscreened targeton is a true state of the world
+that curation cannot fix, unlike a missing design window, which remains a hard failure.
+
 #### Data note
 
 None of this code's inputs or outputs are in this repo: source publications are
@@ -278,10 +303,17 @@ later runs are offline and deterministic.
 #### Sensitivity/specificity/OddsPath calibration
 
 `09_calibrate_sensitivity_oddspath.py` computes, from `06_join_assay.py`'s output: per-group
-depletion rate with Clopper-Pearson 95% CIs, and pairwise odds ratios (Haldane-Anscombe
-corrected at zero cells) with 95% CIs and Fisher's exact p, each mapped to its ClinGen SVI
-OddsPath evidence-strength tier (Very Strong / Strong / Moderate / Supporting / none),
-following Brnich et al. 2019's default thresholds. Computed separately per `curation_group`
+depletion rate with Clopper-Pearson 95% CIs, and, per pair of groups (group_a = pathogenic/case
+reference, group_b = benign/control reference), Brnich et al. 2019's own OddsPath quantities:
+LR+ = sensitivity/(1-specificity) for an abnormal (depleting) result, tiered against the PS3
+thresholds, and LR- = (1-sensitivity)/specificity for a normal result, tiered against the BS3
+thresholds (exact reciprocals of the PS3 ones) — each with a log-scale 95% CI and Fisher's exact
+p on the underlying 2x2 table. The pooled case-control odds ratio (DOR = LR+/LR-) is also
+reported, as a supplementary omnibus statistic, but is *not* itself OddsPath and is not tiered
+against Table 3 (an earlier version of this script tiered the DOR directly, which is only a good
+approximation of OddsPath when specificity is high; see the script's own docstring for the
+Bayes-factor derivation showing why LR+/LR- are the paper's actual quantities). Computed
+separately per `curation_group`
 (default: `CdLS_pathogenic`, `DEE85_pathogenic` vs `Exclude_Benign`) rather than pooling all
 pathogenic variants together, since CdLS and DEE85 differ in mechanism (dominant-negative vs
 loss-of-function) and a single pooled figure would blend two very different evidence
@@ -320,6 +352,9 @@ never instead of — the base per-group numbers:
   excluding PTVs, whose classification often doesn't need functional evidence in the first
   place (ACMG PVS1), so a calibration that includes them risks non-independent,
   double-counted evidence if later stacked with a PVS1 call for the same variant.
+
+Actual sensitivity/specificity/OddsPath figures belong in the thesis write-up, not this
+README, per the "no results in this repo" policy elsewhere in this document.
 
 ---
 
@@ -360,6 +395,13 @@ By default only `FILTER=PASS` gnomAD records are kept; add `--include_non_pass` 
 * `gnomad_absence_stats.tsv` — per-tier gnomAD-match rate, plus the depleted/enriched-vs-no-impact contingency test (Fisher's exact) results
 * `gnomad_match_rate_by_tier.png` — bar chart of % gnomAD-matched per tier
 * `gnomad_af_by_tier.png` — boxplot of log10(pooled AF) per tier, gnomAD-matched variants only
+
+#### Notes:
+* Verify gnomAD INFO field names against your actual VCFs before trusting the output (see Background above).
+* The `TARGETON_EXON` dict (targeton → exon number) used for the cross-targeton summary is
+  hardcoded here and **separately duplicated** in `sge_clinvar_intersect.py` (STEP TEN,
+  same dict, same values) — there's no shared source of truth, so if the exon map ever
+  changes, both copies need updating by hand.
 
 ---
 
@@ -404,6 +446,23 @@ into a later step:
   missense variant (`p.Glu502Lys`) sits at 0.29 — indistinguishable from its own group's
   non-depleting background. Directionally consistent with mechanism separation throughout,
   though the depleting-group sample sizes are too small to reach significance individually.
+* [`ddg_missense_mechanism_discriminator.py`](Code/investigations/ddg_missense_mechanism_discriminator.py)
+  — extends the ΔΔG comparison above with the two reference groups needed to interpret it:
+  ClinVar Benign/Likely-benign missense variants, and the depleting missense VUS from
+  `reclassify_clinvar_vus.py`. The point is to test whether "non-destabilizing" is actually
+  a CdLS-dominant-negative signature or just what an ordinary missense variant looks like.
+  It is the latter — benign, CdLS-non-depleting and CdLS-depleting are indistinguishable
+  (median ΔΔG 0.22–0.29), and only the DEE85-depleting and depleting-VUS groups separate
+  from that shared low-ΔΔG background. Raises, as an open proposal rather than an applied
+  rule, whether a depleting missense variant above the benign/CdLS band should route to the
+  DEE85-calibrated tier instead of the CdLS one.
+* [`ddg_gene_wide_depleting_missense_spread.py`](Code/investigations/ddg_gene_wide_depleting_missense_spread.py)
+  — tests that proposal at scale, against every depleting missense variant the assay calls
+  gene-wide, independent of any clinical curation status. Reports the distribution and the
+  fraction falling in the non-discriminating low-ΔΔG band. Exploratory and clinically
+  unfiltered: it says nothing about whether any individual variant is pathogenic, only what
+  the destabilizing/non-destabilizing split looks like at a scale the curated comparison
+  groups (n in the tens) cannot test.
 * [`annotate_dee85_missense_domain_hotspot.py`](Code/investigations/annotate_dee85_missense_domain_hotspot.py) —
   a literature review of the CdLS/DEE85 mechanism literature turned up a specific,
   independently-replicated claim (Baranano et al. 2022; Bozarth et al. 2023; Di Nardo
@@ -416,7 +475,8 @@ into a later step:
   fall in the cited head domain (2 of them the literally-identical variants reported
   in Baranano 2022), including 4/7 of the group's assay-depleting variants. `VARIANT_COLS`
   in `06_join_assay.py` (STEP SEVEN) was extended so these columns carry through to
-  `assay_join_all.tsv` as well.
+  `assay_join_all.tsv` as well — which is why this script has to run *before* step 06 and
+  be re-run after any rebuild of step 05 (see STEP SEVEN's run-order note).
 * [`cassette_exon_consequence_analysis.py`](Code/investigations/cassette_exon_consequence_analysis.py) —
   tests whether cassette-exon-annotated exons show different depletion behaviour for synonymous
   and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact). Its
@@ -433,8 +493,6 @@ into a later step:
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
-
----
 
 ---
 
@@ -549,7 +607,23 @@ purposes that don't depend on its disease-condition attribution being reliable:
 * [`reclassify_clinvar_vus.py`](Code/investigations/reclassify_clinvar_vus.py) — applies
   STEP SEVEN's calibrated OddsPath tiers to the gene's actual ClinVar Uncertain-significance
   calls, by consequence class: PTV/splice-class VUS that deplete borrow the DEE85-calibrated
-  tier, missense VUS that deplete borrow the CdLS-calibrated tier (defensible since those are the
-  same consequence classes each calibration group is itself built from, not an extrapolation
-  beyond them), and everything else — inframe indels, enriched calls, non-depleting calls of any
-  class — is left unmapped and flagged for individual manual review rather than forced into a
+  tier, missense VUS that deplete borrow the CdLS-calibrated tier, and everything else —
+  inframe indels, enriched calls, non-depleting calls of any class — is left unmapped and
+  flagged for individual manual review rather than forced into a tier. The two mapped classes
+  intentionally draw on *different* calibration runs (`--or_tsv` vs `--missense_or_tsv`), not
+  the same one: Brnich et al. 2019 (the OddsPath framework this calibration follows)
+  recommends matching reference-control consequence class to the variant class under
+  interpretation, and a matched benign reference is constructible for missense/in-frame
+  variants (so the missense mapping uses that restricted, weaker, honestly-labelled
+  calibration) but not for PTV/splice (ClinVar has zero Benign/Likely-benign calls in the
+  actual PTV consequence classes for this gene, checked directly — so that mapping uses the
+  full, unrestricted calibration of necessity, not by choice).
+* [`plot_vus_reclassification_sankey.py`](Code/investigations/plot_vus_reclassification_sankey.py)
+  — static (matplotlib, no plotly/Node dependency) Sankey/alluvial figure of the reclassification
+  flow above: All VUS → consequence class → assay depletion call → recommendation. Node heights
+  are sqrt-compressed with a minimum-height floor, stated on the figure itself, since the large
+  "no impact"/"no recommendation" majority would otherwise crush every informative flow to an
+  unreadable sliver under a plain linear scale.
+
+---
+
