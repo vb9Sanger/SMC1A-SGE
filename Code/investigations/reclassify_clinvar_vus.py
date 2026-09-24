@@ -123,6 +123,11 @@ def mechanism_class(consequence: str) -> str:
 
 
 def load_comparison(or_tsv: str, spec: str) -> dict:
+    """Reads the PS3-side quantity for a depleting/abnormal-result VUS: LR+
+    (= sensitivity / (1-specificity)), which is what Brnich et al. 2019's
+    OddsPath actually reduces to for an abnormal result -- not the pooled
+    case-control odds ratio (DOR) 09_calibrate_sensitivity_oddspath.py used
+    to tier directly. See that script's docstring for the derivation."""
     group_a, group_b = spec.split("|", 1)
     df = pd.read_csv(or_tsv, sep="\t")
     row = df[(df["group_a"] == group_a) & (df["group_b"] == group_b)]
@@ -133,9 +138,9 @@ def load_comparison(or_tsv: str, spec: str) -> dict:
     r = row.iloc[0]
     return {
         "comparison": f"{group_a} vs {group_b}",
-        "OR": r["OR"], "ci_lo": r["ci_lo"], "ci_hi": r["ci_hi"],
-        "p": r["fisher_p"], "tier": r["oddspath_tier_point_estimate"],
-        "ci_crosses_one": r["ci_lo"] <= 1.0 <= r["ci_hi"],
+        "OR": r["LR_plus"], "ci_lo": r["LR_plus_ci_lo"], "ci_hi": r["LR_plus_ci_hi"],
+        "p": r["fisher_p"], "tier": r["oddspath_tier_ps3"],
+        "ci_crosses_one": r["LR_plus_ci_lo"] <= 1.0 <= r["LR_plus_ci_hi"],
     }
 
 
@@ -165,7 +170,7 @@ def main():
 
     for label, cal in [("PTV/splice", ptv_cal), ("missense", missense_cal)]:
         flag = " ** 95% CI CROSSES 1 -- do not treat as reliable evidence **" if cal["ci_crosses_one"] else ""
-        print(f"{label} calibration: {cal['comparison']}  OR={cal['OR']:.1f} "
+        print(f"{label} calibration: {cal['comparison']}  LR+={cal['OR']:.1f} "
               f"(95% CI {cal['ci_lo']:.1f}-{cal['ci_hi']:.1f})  tier={cal['tier']}{flag}",
               file=sys.stderr)
 
@@ -190,7 +195,7 @@ def main():
         else:
             return mclass, "manual_review", "consequence class not mapped to either calibration (see docstring)"
         reliability = " (CI crosses 1 -- treat cautiously)" if cal["ci_crosses_one"] else ""
-        return mclass, f"PS3 {cal['tier']}{reliability}", f"borrowed from {cal['comparison']} (OR={cal['OR']:.1f})"
+        return mclass, f"PS3 {cal['tier']}{reliability}", f"borrowed from {cal['comparison']} (LR+={cal['OR']:.1f})"
 
     results = vus.apply(classify, axis=1, result_type="expand")
     results.columns = ["mechanism_class", "recommendation", "note"]
