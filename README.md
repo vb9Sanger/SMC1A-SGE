@@ -618,12 +618,6 @@ purposes that don't depend on its disease-condition attribution being reliable:
   calibration) but not for PTV/splice (ClinVar has zero Benign/Likely-benign calls in the
   actual PTV consequence classes for this gene, checked directly — so that mapping uses the
   full, unrestricted calibration of necessity, not by choice).
-* [`plot_vus_reclassification_sankey.py`](Code/investigations/plot_vus_reclassification_sankey.py)
-  — static (matplotlib, no plotly/Node dependency) Sankey/alluvial figure of the reclassification
-  flow above: All VUS → consequence class → assay depletion call → recommendation. Node heights
-  are sqrt-compressed with a minimum-height floor, stated on the figure itself, since the large
-  "no impact"/"no recommendation" majority would otherwise crush every informative flow to an
-  unreadable sliver under a plain linear scale.
 
 ---
 
