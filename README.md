@@ -393,26 +393,58 @@ then answers directly how far the result depends on trusting ClinVar.
 
 The frequency threshold is derived rather than conventional, using the maximum credible
 population allele frequency of Whiffin et al. 2017 (*Genet Med* 19:1151–1158) — ACMG's BA1 (5%)
-is far too permissive for a disorder of this severity and BS1 has no default. Three filters
-matter and each was added after seeing what the data does without it: deduplicate by genomic
-variant (the gnomAD table is per oligo and SMC1A's targeton windows overlap), require allele
-count ≥ 2 (`grpmax` is an ancestry-group maximum, so a single allele in a small group yields a
-high AF on no evidence), and exclude anything asserted pathogenic elsewhere.
+is far too permissive for a disorder of this severity and BS1 has no default. For SMC1A/CdLS
+that value is 5.0e-7, which turns out to sit **below the resolution of gnomAD**: at the observed
+AN of ~1.1M a single allele is already 9.2e-7, so every variant observed at all exceeds the
+maximum credible pathogenic frequency.
+
+The script offers two rules on that basis, and the choice between them is the substance of the
+decision rather than a parameter:
+
+- `--proxy_clinical` — **the default for this work.** Every gnomAD-observed variant becomes a
+  benign control, per CanVIG-UK Recommendation 4, which extends the maximum-tolerated-allele-
+  frequency principle that far for very rare, highly penetrant, early-onset disease.
+- `--max_credible_af 5.0e-7` — Whiffin's rigorous form, filtering on the *filtering* allele
+  frequency (the CI lower bound) rather than the point estimate. The script derives the
+  necessary allele count rather than taking one: it finds the smallest AC whose one-sided 95%
+  lower bound clears maxAF, which here is AC ≥ 3. Retained as a robustness comparator.
+
+Two further filters apply in both modes and each was added after seeing what the data does
+without it: deduplicate by genomic variant (the gnomAD table is per oligo and SMC1A's targeton
+windows overlap), and exclude anything asserted pathogenic elsewhere. Note that under the
+AC ≥ 3 rule that last filter removes nothing — no variant asserted pathogenic in the curated
+arms or in ClinVar reaches AC ≥ 3 in gnomAD.
 
 **Zero benign cells.** Several comparisons have no depleting benign control at all, and the
 gene is the reason — SMC1A is missense-constrained, so benign missense variants barely exist
-and no amount of further curation produces a larger matched reference. Where that happens the
+and no amount of further *clinical* curation produces a larger matched reference (the curated
+benign group contributes 3 of them, and all of ClinVar adds 9). Where that happens the
 maximum likelihood estimate of LR+ is infinite and any finite figure comes from a correction,
 not from data. The script therefore reports **both** the Haldane-Anscombe convention `09_...py`
 uses (+0.5 to every cell) and the correction Brnich et al. themselves use (+1 misclassified
 variant per set), because the two can differ by a factor of two and straddle a tier boundary.
 Neither should be quoted as a tier on its own; the defensible statement is the confidence
-bound, which requires no convention — for the matched comparison here the joint 95% bound is
-LR+ ≥ 1.58, below the Supporting threshold of 2.08, so no tier is supported whichever
-correction is preferred. The argument is set out in full in the thesis write-up (not in this
-repo, per the results policy above) and recorded as decision **D152**.
+bound, which requires no convention. The argument is set out in full in the thesis write-up
+(not in this repo, per the results policy above) and recorded as decisions **D152** (which
+correction, and why the bound is the defensible statement) and **D153** (which benign
+reference, and why). Enlarging the reference turned out to matter more than the choice of
+correction: on the matched cut the corrections disagreed across a tier boundary at n=17 and
+agree at n=291.
+
+One related fix lives in the code rather than the write-up. Where *both* cells are zero — no
+pathogenic variant occupies a tier and no benign one does either — a Haldane correction returns
+a large ratio purely from n₂ ≫ n₁, and the table would label a tier nothing occupies. `lr_ci`
+and `lr_brnich` now return `None` whenever the pathogenic cell is zero, and the tables print a
+dash.
 
 ```bash
+# the benign controls, in the mode used for the primary analysis
+python Code/investigations/extract_gnomad_benign_controls.py \
+  --gnomad_summary sge_gnomad_summary.tsv \
+  --curated_tsv smc1a_variants_all.tsv \
+  --clinvar_summary clinvar_variants_summary.tsv \
+  --proxy_clinical --output gnomad_benign_controls.tsv
+
 python Code/variant_curation/10_calibrate_by_tier.py \
   --join_tsv assay_join_all.tsv \
   --clinvar_benign clinvar_benign_controls.tsv \
@@ -696,4 +728,5 @@ purposes that don't depend on its disease-condition attribution being reliable:
   full, unrestricted calibration of necessity, not by choice).
 
 ---
+
 
