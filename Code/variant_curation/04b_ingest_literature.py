@@ -700,10 +700,20 @@ PAPERS = {
         "design": "single case report (whole exome sequencing)",
         "disease_reported": "Cornelia de Lange syndrome (CdLSp2)",
         "disease_harmonised": "CdLS2",
-        "disease_basis": ("clinically diagnosed CdLS with the SMC1A variant reported as "
-                          "confirming the diagnosis; NOTE the same patient also carries "
-                          "a NIPBL variant, so the attribution to SMC1A is not exclusive "
-                          "and the observation is flagged as a dual molecular finding"),
+        "disease_basis": ("clinically diagnosed non-classic CdLS, de novo with both "
+                          "parents confirmed normal, and the SMC1A variant reported as "
+                          "confirming the diagnosis. CORRECTED 2026-09-25 (D149): this "
+                          "entry previously carried a caveat that the same patient also "
+                          "carried a NIPBL variant. It does not. Fateh reports TWO "
+                          "cases -- case 1 is classic CdLS whose blood exome was "
+                          "negative and whose mosaic NIPBL variant "
+                          "(NM_133433.4:c.6534_6535del) was found only in skin-derived "
+                          "DNA, and case 2 is this non-classic CdLS patient with the "
+                          "SMC1A variant and no NIPBL finding. The caveat came from "
+                          "misreading 'Similar to the NIPBL variant, the SMC1A variant "
+                          "was classified as likely pathogenic', which compares the "
+                          "classification of the two separate cases. The attribution is "
+                          "therefore cleaner than previously recorded, not weaker"),
         "classification_raw": "likely pathogenic (authors' own classification)",
         "classification": "LP",
         "classification_method": ("authors state the variant was classified as likely "

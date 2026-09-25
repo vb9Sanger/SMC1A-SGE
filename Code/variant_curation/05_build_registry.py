@@ -101,6 +101,22 @@ ARM_GROUPS = ("CdLS_pathogenic", "DEE85_pathogenic")
 # Overrides may only ever REMOVE a variant from an analysis arm, never admit
 # one: an automated gate that is too permissive can be corrected here, but a
 # variant that fails the stated criteria must not be let in by hand.
+# Shared by the four Yuan 2019 Table S2 variants below (D142); they are one
+# decision about one table, not four independent judgements.
+_YUAN_S2 = {
+    "group": "Exclude_disease_uncertain",
+    "exclusion_reason": "disease_attribution_by_cohort_label_only",
+    "reason": ("attributed to CdLS solely by membership of Yuan 2019 Table "
+               "S2, a genotype-ascertained cohort table recording no per-case "
+               "phenotype (transcript, coordinate, zygosity and inheritance "
+               "only). The same paper's phenotyped arm, Table 1, found CdLS "
+               "was the differential diagnosis in 1 of 14 cases, and D69 "
+               "already declines an attribution for the other 13. Cohort "
+               "membership is not a per-case adjudication, and no independent "
+               "source supports the arm: the matching LOVD record is a "
+               "deposit of Yuan, suppressed under D139 (D142)"),
+}
+
 ATTRIBUTION_OVERRIDES = {
     # c.1756C>T p.Arg586Trp -- D137
     "chrX:53405648:G:A": {
@@ -113,6 +129,68 @@ ATTRIBUTION_OVERRIDES = {
                    "claim is cohort ascertainment in Huisman 2017, whose "
                    "non-Dutch participants were CdLS-suspected before testing "
                    "(D137)"),
+    },
+    # ---- D142: Yuan 2019 Table S2 -- cohort label, not adjudication --------
+    # A genotype-ascertained cohort that records no per-case phenotype cannot
+    # be the sole basis for a disease attribution. Yuan 2019 contributes
+    # through two tables: Table 1 records per case whether CdLS was the
+    # differential diagnosis, and it was NOT in 13 of 14 (D69 already declines
+    # those); Table S2 gives only transcript, coordinate, zygosity and
+    # inheritance, with no phenotype at all. The four variants below are
+    # attributed to CdLS solely by Table S2 cohort membership, in a cohort
+    # assembled by finding SMC1A variants whose own authors note the
+    # phenotypes "skew towards the mild end of the CdLS spectrum compared
+    # with phenotype-driven cohorts". Where the same paper DID phenotype, it
+    # supported CdLS in 1 of 14. Each rests on Yuan alone -- the matching LOVD
+    # record is a deposit of Yuan, already suppressed under D139.
+    #
+    # The rule generalises beyond this paper and is stated in METHODS: cohort
+    # membership is not a per-case adjudication. It happens to reach no DEE85
+    # variant, which is a property of the sources, not of the rule.
+    "chrX:53415158:G:A": _YUAN_S2,   # c.121C>T    p.Leu41Phe
+    "chrX:53405047:G:A": _YUAN_S2,   # c.2161C>T   p.Gln721Ter
+    "chrX:53383255:T:C": _YUAN_S2,   # c.2974-2A>G p.Asp992_Gln994del
+    "chrX:53382640:G:A": _YUAN_S2,   # c.3151C>T   p.Arg1051Ter
+
+    # ---- D144: c.116C>G p.Ser39Ter -- "differential" is not a diagnosis ----
+    "chrX:53415163:G:C": {
+        "group": "Exclude_disease_uncertain",
+        "exclusion_reason": "disease_attribution_by_cohort_label_only",
+        "reason": ("the whole CdLS attribution is Yuan 2019 Table 1's binary "
+                   "field recording that CdLS was a *differential diagnosis* "
+                   "for this case -- the one case of 14 where that field reads "
+                   "yes, which is why D69 does not decline it and D142 does "
+                   "not reach it. But a differential is a diagnosis under "
+                   "consideration, not one made: Yuan's own disease string for "
+                   "this case is 'cohesinopathy-gene variant on clinical "
+                   "exome', with no phenotype and no HPO terms. The "
+                   "'Diagnosis/Definite=CDLS2' text belongs to the LOVD "
+                   "deposit, whose disease claim is suppressed under D139 and "
+                   "which D139's own analysis shows is a submission-level "
+                   "field repeated verbatim across 17 individuals, not a "
+                   "per-patient adjudication; that deposit also carried "
+                   "'MYOP|CDLS'. One checkbox in a genotype-ascertained "
+                   "cohort is not a per-case determination (D144)"),
+    },
+
+    # ---- D144: c.2897C>G p.Ser966Ter -- OMIM code, citation substantiates
+    #      nothing ------------------------------------------------------
+    "chrX:53394854:G:C": {
+        "group": "Exclude_disease_uncertain",
+        "exclusion_reason": "disease_attribution_by_cohort_label_only",
+        "reason": ("database-only attribution: a single LOVD record whose "
+                   "disease field is 'CDLS2' and whose entire phenotype field "
+                   "is 'Additional=Cornelia de Lange syndrome 2 "
+                   "(OMIM:300590)' -- an OMIM code standing in for a "
+                   "determination, which is the exact failure mode this "
+                   "curation exists to avoid. Its cited PMID 27848944 is "
+                   "Trujillano 2017, 'Clinical exome sequencing: results from "
+                   "2819 samples reflecting 1000 families'; the paper is held "
+                   "and was read for this decision and contains no mention of "
+                   "SMC1A, Cornelia or de Lange anywhere in its text, so it "
+                   "makes no per-case CdLS determination to inherit. D139 did "
+                   "not fire only because that paper was never ingested as a "
+                   "source (D144)"),
     },
 }
 
@@ -461,6 +539,183 @@ def suppress_redundant_database_attributions(observations, say_fn):
             say_fn(f"| {paper} | {len(rows)} | `{dep}` | `{pub}` |")
         say_fn("")
     return suppressed
+
+
+# ---------------------------------------------------------------------------
+# Guard six: a source's stated protein change against the derived one
+#
+# Added after D143, for the same reason as the other five -- the defect it
+# catches produced a plausible-looking table rather than an error. Liu 2009
+# Table 1 prints `c.173del15`, a 15 bp in-frame deletion; the extraction
+# dropped the length suffix and recorded `c.173del`, which is well-formed HGVS
+# that left-aligns to a real position and passes every existing guard. It
+# resolved to a frameshift found nowhere in the paper, and produced a spurious
+# depleting PTV in the CdLS arm.
+#
+# The one signal available was the extraction's own `protein` column, which
+# said `p.V58_R62del` while the pipeline derived `p.Val58GlufsTer7`. Nothing
+# compared them. This does.
+#
+# The comparison is by CLASS, not by string: sources write the same change many
+# ways (`p.Glu577Glu` / `p.Glu577=`, `Glu205fs*` / `p.Glu205fs`) and a string
+# test would be noise. A class disagreement -- in-frame deletion versus
+# frameshift -- is the shape of a real error.
+# ---------------------------------------------------------------------------
+_AA3 = ("Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|"
+        "Thr|Trp|Tyr|Val|Ter|Sec|Xaa")
+
+
+def protein_change_class(p: str) -> str:
+    """Classify a protein description into a comparable consequence class.
+
+    Returns "unknown" for anything not confidently recognised, and the caller
+    skips those: this guard exists to catch contradictions, not to police
+    notation.
+    """
+    s = str(p or "").strip()
+    if not s:
+        return "unknown"
+    s = re.sub(r"^p\.", "", s).replace("(", "").replace(")", "")
+    if not s:
+        return "unknown"
+    # frameshift first: "fs", "fsTer12", "fs*12" all mean the same thing
+    if re.search(r"fs", s, re.I):
+        return "frameshift"
+    if re.search(r"ext", s, re.I):
+        return "extension"
+    # synonymous, written either as "=" or by repeating the residue
+    if s.endswith("="):
+        return "synonymous"
+    m = re.fullmatch(rf"({_AA3})(\d+)({_AA3})", s)
+    if m:
+        a, _, b = m.groups()
+        if a == b:
+            return "synonymous"
+        return "nonsense" if b == "Ter" else "missense"
+    m = re.fullmatch(r"([A-Z])(\d+)([A-Z*])", s)          # 1-letter form
+    if m:
+        a, _, b = m.groups()
+        if a == b:
+            return "synonymous"
+        # `X` is the legacy one-letter stop, as is `*`. Reading X as an amino
+        # acid turns every old-style nonsense call into a missense one.
+        return "nonsense" if b in ("*", "X") else "missense"
+    # Length-changing events are tested BEFORE the nonsense fallback: a
+    # description like `Lys268del` names a residue and would otherwise be
+    # caught by a residue-plus-stop pattern.
+    if "delins" in s.lower():
+        return "inframe_delins"
+    if re.search(r"del", s, re.I):
+        return "inframe_del"
+    if re.search(r"ins|dup", s, re.I):
+        return "inframe_ins"
+    # `(?:...)` matters: `_AA3` is a bare alternation, so interpolating it
+    # unwrapped makes every branch but the last a standalone pattern, and any
+    # string merely CONTAINING a residue name matches.
+    if re.search(r"\*\d*$", s) or re.search(rf"(?:{_AA3})\d+Ter$", s):
+        return "nonsense"
+    return "unknown"
+
+
+# Classes collapse into these groups before comparison. The guard's job is to
+# catch a contradiction in what the variant DOES to the protein -- frame kept,
+# frame lost, stop introduced -- not to arbitrate notation. Sources write one
+# frame-preserving event as a deletion, a delins or an insertion depending on
+# house style (`p.Asp831-Gln832del` and `p.Asp831_Gln832delinsGlu` are the same
+# three bases), and treating those as conflicts would be noise. The distinction
+# that matters, and the one D143 turned on, is in-frame versus frameshift.
+PROTEIN_CLASS_GROUP = {
+    "inframe_del": "frame_preserving_indel",
+    "inframe_ins": "frame_preserving_indel",
+    "inframe_delins": "frame_preserving_indel",
+}
+
+
+def protein_change_group(p: str) -> str:
+    c = protein_change_class(p)
+    return PROTEIN_CLASS_GROUP.get(c, c)
+
+
+# Mismatches that survive grouping and are explained. Keyed on the full tuple,
+# so an entry cannot silently absorb a different defect in the same source, and
+# a stale entry aborts rather than quietly doing nothing.
+PROTEIN_CLASS_MISMATCH_ALLOWED = {
+    ("Bozarth_2023", "c.615G>A", "Glu205fs*", "p.Glu205="): (
+        "Bozarth describes this variant by its TRANSCRIPT-level consequence -- "
+        "c.615G>A disrupts the exon 4 splice donor region and the paper "
+        "reports the resulting frameshift -- while the pipeline derives the "
+        "CODING-level consequence, which is synonymous at the codon. Both are "
+        "correct at their own level; the variant is curated as splice_region."),
+    # Symonds 2017 and Hansen 2013 write the same two variants as
+    # `p.Glu205Glu` / `p.Glu577Glu`. Those need no exemption: a repeated
+    # residue IS synonymous, and `protein_change_class` recognises it, so they
+    # agree with the derived `p.Glu205=` / `p.Glu577=` rather than conflicting.
+    # Whitelisting them would have hidden a classifier gap behind an exemption.
+    ("Astorino_2025", "c.615G>A", "Glu2055*", "p.Glu205="): (
+        "the same transcript-versus-coding distinction as the Bozarth row "
+        "above -- Astorino is a review compiling Bozarth -- but the string is "
+        "also mangled: `Glu2055*` is `Glu205fs*` with the `f` lost, and "
+        "residue 2055 does not exist in a 1233 aa protein. Recorded as a "
+        "further Astorino transcription error in the manner of D37, not as a "
+        "claim about the variant."),
+    ("Bozarth_2023", "c.2421_2562del", "Leu808Arg", "p.Leu808ArgfsTer6"): (
+        "notation shorthand, not a disagreement: c.2421_2562del removes 142 "
+        "bases, which is not a multiple of three, so the event is a "
+        "frameshift and the derived description is right. Bozarth names only "
+        "the first altered residue, Leu808Arg, which is the same residue the "
+        "derived `p.Leu808ArgfsTer6` starts from."),
+}
+
+
+def check_protein_change_agreement(observations, resolved, say_fn):
+    """Abort if a source's stated protein change contradicts the derived one."""
+    mismatches, used = [], set()
+    for o in observations:
+        stated = L.clean(o.get("hgvs_p_input"))
+        if not stated:
+            continue
+        res = resolved.get(L.clean(o.get("hgvs_c_input")))
+        derived = L.clean((res or {}).get("hgvs_p_mane"))
+        if not derived:
+            continue
+        cs, cd = protein_change_group(stated), protein_change_group(derived)
+        if cs == "unknown" or cd == "unknown" or cs == cd:
+            continue
+        key = (str(o.get("source")), L.clean(o.get("hgvs_c_input")),
+               stated, derived)
+        if key in PROTEIN_CLASS_MISMATCH_ALLOWED:
+            used.add(key)
+            continue
+        mismatches.append((key, cs, cd))
+
+    stale = sorted(set(PROTEIN_CLASS_MISMATCH_ALLOWED) - used)
+    if stale:
+        raise SystemExit(
+            f"ABORT: {len(stale)} protein-mismatch whitelist entr(y/ies) match "
+            f"nothing: {stale}. An exemption that no longer applies must be "
+            f"removed deliberately, not left to do nothing.")
+
+    if mismatches:
+        for (src, c, stated, derived), cs, cd in mismatches[:20]:
+            print(f"  {src} {c}: source says {stated} ({cs}), "
+                  f"derived {derived} ({cd})")
+        raise SystemExit(
+            f"ABORT: {len(mismatches)} observation(s) whose source-stated "
+            f"protein change contradicts the one derived from their stated "
+            f"cDNA. This is how a mis-transcribed cDNA description reaches the "
+            f"table looking valid (D143). Fix the extraction, or add the case "
+            f"to PROTEIN_CLASS_MISMATCH_ALLOWED with its reason.")
+
+    say_fn(f"Protein-change agreement: every source-stated protein change "
+           f"agrees in class with the one derived from its own cDNA "
+           f"description, allowing {len(PROTEIN_CLASS_MISMATCH_ALLOWED)} "
+           f"documented exception(s) (D143).")
+    say_fn("")
+    for (src, c, stated, derived), why in sorted(
+            PROTEIN_CLASS_MISMATCH_ALLOWED.items()):
+        say_fn(f"- `{src}` `{c}`: source `{stated}` vs derived `{derived}` -- "
+               f"{why}")
+    say_fn("")
 
 
 def check_disease_vocabulary(observations):
@@ -960,6 +1215,11 @@ def main():
     if os.path.exists(p):
         for r in read_tsv(p):
             quarantined[r["hgvs_c_input"]] = r
+
+    # Guard six (D143): a source's own protein change against the derived one.
+    # Runs here because it needs both the observation ledger and the resolver
+    # output, and must run before anything is collapsed to variants.
+    check_protein_change_agreement(observations, resolved, say)
 
     targeton_status = {}
     for t in read_tsv(os.path.join(REF, "smc1a_targetons.tsv")):
