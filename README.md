@@ -257,8 +257,20 @@ contains that curation pipeline and its join against this screen's results, run 
 | `07_make_data_dictionary.py` | regenerates a data dictionary from `smc1a_schema.py` |
 | `08_audit_curated_set.py` | independent audit of the curated set; exits non-zero on failure |
 | `09_calibrate_sensitivity_oddspath.py` | formal sensitivity/specificity/OddsPath calibration against the curated set (see below) |
+| `10_calibrate_by_tier.py` | the same calibration per depletion tier rather than as a binary call, across four benign reference compositions, reporting both zero-cell corrections (see below) |
 
 `smc1a_lib.py` / `smc1a_schema.py` are shared library code, not run directly.
+
+Four further scripts are verification rather than pipeline stages, run on demand rather
+than in sequence. They were written during a full audit of the curated set
+(`DECISIONS_LOG.md` D141–D151) and are kept because each one caught something:
+
+| script | what it checks |
+|---|---|
+| `audit_attribution_evidence.py` | what independent, non-suppressed, per-case disease claim actually stands behind each curated variant's arm assignment, and whether any source claims the other arm. Found that 22 attributions rested on a single genotype-ascertained or rule-inferred source, which led to the D142/D144 exclusions |
+| `verify_extractions_against_sources.py` | checks every extracted cDNA and protein description against its source PDF, XLSX or DOCX, main text and supplementary, notation-insensitively. Found D143 — a 15 bp in-frame deletion recorded as a 1 bp frameshift — and confirmed the curation silently corrects six errors in its own sources |
+| `audit_all_variants_rederivation.py` | re-derives protein change, protein position and group assignment for **all** variants rather than the curated subset, independently of what the pipeline recorded. The other 153 feed the benign reference and the ClinVar comparisons, so an error there reaches the headline statistics without touching the curated set |
+| `check_deposit_individual_matching.py` | whether each database deposit (LOVD, GeneDx, DDD) can be matched one-to-one onto a named individual in the publication it came from, which is what decides whether two records are one case or two. Open question Q38 |
 
 #### Two things the step numbering doesn't tell you
 
@@ -355,6 +367,70 @@ never instead of — the base per-group numbers:
 
 Actual sensitivity/specificity/OddsPath figures belong in the thesis write-up, not this
 README, per the "no results in this repo" policy elsewhere in this document.
+
+#### Calibration by tier, and the benign reference
+
+[`10_calibrate_by_tier.py`](Code/variant_curation/10_calibrate_by_tier.py) extends the above
+in two ways that turned out to interact, and reports both corrections for a zero cell.
+
+**Per-tier likelihood ratios instead of a binary call.** `09_...py` collapses `anchor_tier`
+to depleted / not depleted, which pools "weakly depleting" with "strongly depleting". Those
+are not equivalent evidence, and pooling lets the confident calls carry the uncertain ones.
+This computes LR(tier) = P(tier | pathogenic) / P(tier | benign) for each observable result,
+which is what OddsPath reduces to per result — the binary LR+ being the special case where
+the result is "depleted". In this dataset the difference is not academic: for one arm,
+binarising promotes the evidence a whole tier, because the weakly-depleting variants enter
+with an empty benign comparator.
+
+**A benign reference that carries no clinical assertion.**
+[`extract_gnomad_benign_controls.py`](Code/investigations/extract_gnomad_benign_controls.py)
+builds population-frequency controls from the assay's own gnomAD intersection. For a severe,
+early-onset, essentially always de novo disorder, a pathogenic allele has close to zero
+reproductive fitness and should not persist in a population database, so a variant seen
+repeatedly in gnomAD is evidence against pathogenicity that is independent of whether anyone
+classified it correctly. Running the calibration with and without the ClinVar-derived controls
+then answers directly how far the result depends on trusting ClinVar.
+
+The frequency threshold is derived rather than conventional, using the maximum credible
+population allele frequency of Whiffin et al. 2017 (*Genet Med* 19:1151–1158) — ACMG's BA1 (5%)
+is far too permissive for a disorder of this severity and BS1 has no default. Three filters
+matter and each was added after seeing what the data does without it: deduplicate by genomic
+variant (the gnomAD table is per oligo and SMC1A's targeton windows overlap), require allele
+count ≥ 2 (`grpmax` is an ancestry-group maximum, so a single allele in a small group yields a
+high AF on no evidence), and exclude anything asserted pathogenic elsewhere.
+
+**Zero benign cells.** Several comparisons have no depleting benign control at all, and the
+gene is the reason — SMC1A is missense-constrained, so benign missense variants barely exist
+and no amount of further curation produces a larger matched reference. Where that happens the
+maximum likelihood estimate of LR+ is infinite and any finite figure comes from a correction,
+not from data. The script therefore reports **both** the Haldane-Anscombe convention `09_...py`
+uses (+0.5 to every cell) and the correction Brnich et al. themselves use (+1 misclassified
+variant per set), because the two can differ by a factor of two and straddle a tier boundary.
+Neither should be quoted as a tier on its own; the defensible statement is the confidence
+bound, which requires no convention — for the matched comparison here the joint 95% bound is
+LR+ ≥ 1.58, below the Supporting threshold of 2.08, so no tier is supported whichever
+correction is preferred. The argument is set out in full in the thesis write-up (not in this
+repo, per the results policy above) and recorded as decision **D152**.
+
+```bash
+python Code/variant_curation/10_calibrate_by_tier.py \
+  --join_tsv assay_join_all.tsv \
+  --clinvar_benign clinvar_benign_controls.tsv \
+  --gnomad_benign gnomad_benign_controls.tsv \
+  --consequence_map clinvar_variants_summary.tsv sge_gnomad_summary.tsv \
+  --outdir calibration/ --label incl_PTV
+```
+
+`--consequence_filter` behaves as in `09_...py` but applies to the external control files too,
+which is why `--consequence_map` is needed: most controls are not in the curated join and
+carry no `consequence_class`, so without a class for them a matched run silently drops them
+rather than matching on nothing.
+
+**Known issue in `09_calibrate_sensitivity_oddspath.py`:** it does not normalise `variant_key`
+before pooling groups. `assay_join_all.tsv` and the gnomAD extractor write `chrX:53380084:C:A`
+while `extract_clinvar_benign_controls.py` omits the contig, so no ClinVar key ever matches a
+curated one and a pooled benign reference double-counts shared variants. `10_...py` normalises;
+`09_...py` should be given the same treatment.
 
 ---
 
