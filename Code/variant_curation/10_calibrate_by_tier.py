@@ -85,6 +85,11 @@ def lr_brnich(a, n1, b, n2):
     """
     if n1 + 1 == 0 or n2 + 1 == 0:
         return None
+    # As in lr_ci: with no pathogenic variant in this tier there is nothing to
+    # estimate, and the formula returns a flat 0.00 that would be labelled
+    # "BS3 Very Strong" for a result neither group exhibits.
+    if a == 0:
+        return None
     return (a / (n1 + 1)) / ((b + 1) / (n2 + 1))
 
 
@@ -95,6 +100,13 @@ def lr_ci(a, n1, b, n2, z=1.96):
     the ratio or its variance undefined, and the correction is reported so a
     reader can see which figures rest on it.
     """
+    # No pathogenic variant landed in this tier, so there is nothing to
+    # estimate. A Haldane correction here produces a large LR purely from
+    # n2 >> n1 -- with 0/11 pathogenic and 0/291 benign it reports 24.08 and
+    # a "PS3 Strong" label for a tier no pathogenic variant occupies. Refuse
+    # rather than print it.
+    if a == 0:
+        return None, None, None, False
     corrected = (a == 0 or b == 0)
     if corrected:
         a, n1, b, n2 = a + 0.5, n1 + 1, b + 0.5, n2 + 1
@@ -106,6 +118,11 @@ def lr_ci(a, n1, b, n2, z=1.96):
     except (ValueError, ZeroDivisionError):
         return lr, None, None, corrected
     return lr, lr * math.exp(-z * se), lr * math.exp(z * se), corrected
+
+
+def fmt(v):
+    """A likelihood ratio, or a dash where none is estimable."""
+    return "-" if v is None or pd.isna(v) else f"{v:.2f}"
 
 
 def norm_key(k):
@@ -289,8 +306,8 @@ def main():
                 print(f"  {r.reference:<26}{r.result:<20}"
                       f"{str(r.k_path)+'/'+str(r.n_path):<10}"
                       f"{str(r.k_benign)+'/'+str(r.n_benign):<11}"
-                      f"{r.LR:>8.2f}{star} {ci:<22}{r.evidence:<18}"
-                      f"{r.LR_brnich:>8.2f}  {r.evidence_brnich}")
+                      f"{fmt(r.LR):>8}{star} {ci:<22}{r.evidence:<18}"
+                      f"{fmt(r.LR_brnich):>8}  {r.evidence_brnich}")
     print("\n  * LR rests on a Haldane-Anscombe correction for a zero cell.")
     print("  The right-hand pair applies instead the correction Brnich et al. 2019")
     print("  themselves use -- one misclassified variant added to each set -- which")
