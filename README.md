@@ -458,11 +458,17 @@ which is why `--consequence_map` is needed: most controls are not in the curated
 carry no `consequence_class`, so without a class for them a matched run silently drops them
 rather than matching on nothing.
 
-**Known issue in `09_calibrate_sensitivity_oddspath.py`:** it does not normalise `variant_key`
-before pooling groups. `assay_join_all.tsv` and the gnomAD extractor write `chrX:53380084:C:A`
-while `extract_clinvar_benign_controls.py` omits the contig, so no ClinVar key ever matches a
-curated one and a pooled benign reference double-counts shared variants. `10_...py` normalises;
-`09_...py` should be given the same treatment.
+**Reconciling the two calibration scripts.** Both normalise `variant_key` before counting
+(the three benign sources disagree on whether to write the contig, so without it no ClinVar key
+ever equals a curated or gnomAD one), and both take `--pool` as a union by variant_key rather
+than a sum of counts — the benign sources share 254 variants, so summing inflated the
+denominator. Both of those were defects in `09_...py` until 2026-09-28.
+
+One difference remains, by design: `10_...py` restricts to the three depletion tiers and so
+drops `enriched` controls, while `09_...py` keeps them in the denominator on the grounds that
+an enriched call is not a depleted call and therefore contributes to specificity. For the
+curated + ClinVar + gnomAD reference that is n=1408 against n=1402, a difference of exactly the
+6 enriched controls, with the same 6 depleted in both.
 
 ---
 
