@@ -53,6 +53,26 @@ default -- override with --groups):
   specificity is high (LR- close to 1); this version computes the paper's
   own quantities directly instead of relying on that approximation holding.
 
+Two counting notes, both fixed 2026-09-28 and both worth knowing if you are
+reconciling this script's output against `10_calibrate_by_tier.py`:
+
+  1. `variant_key` is normalised (see `norm_key`) before anything is counted.
+     The benign sources disagree on format -- `assay_join_all.tsv` and the
+     gnomAD extractor write `chrX:53380084:C:A`, `extract_clinvar_benign_
+     controls.py` writes `53380118:G:A` -- so without this no ClinVar key ever
+     equalled one from the other sources.
+  2. `--pool` takes a UNION by variant_key, not a sum of counts. The benign
+     sources overlap heavily (254 shared variants across curated + ClinVar +
+     gnomAD), so summing inflated both denominator and numerator. The pooled
+     line now reports how many were shared and what summing would have given.
+
+Reconciling with `10_calibrate_by_tier.py`: that script restricts to the three
+depletion tiers and so DROPS `enriched` variants, where this one keeps them in
+the denominator (an enriched call is not a depleted call, so it contributes to
+specificity). For the curated + ClinVar + gnomAD benign reference that is
+n=1408 here against n=1402 there -- a difference of exactly the 6 enriched
+controls, with the same 6 depleted in both.
+
 De-duplicates by variant_key within each group before computing anything
 (a variant matched by more than one oligo -- see the data-quality note
 below -- would otherwise be double-counted or silently resolved by whichever
@@ -100,6 +120,7 @@ the pooled figure silently replacing the unpooled ones:
 import argparse
 import math
 import os
+import re
 import sys
 from collections import defaultdict
 from itertools import combinations
@@ -194,6 +215,26 @@ def bs3_tier(lr_minus):
     return "none (below Supporting)"
 
 
+def norm_key(k):
+    """Normalise a variant_key to `chrX:pos:ref:alt`.
+
+    The benign sources do not agree on format: `assay_join_all.tsv` and
+    `extract_gnomad_benign_controls.py` write `chrX:53380084:C:A`, while
+    `extract_clinvar_benign_controls.py` writes `53380118:G:A` with no contig.
+    Without this, no key from ClinVar can ever equal one from the other two,
+    so a variant present in two groups looks like two variants and a --pool
+    counts it twice. 13 variants are shared between the curated benign group
+    and ClinVar, 17 between curated and gnomAD, and 73 between ClinVar and
+    gnomAD, so the effect is not marginal.
+    """
+    k = str(k).strip()
+    if k.startswith("chrX:"):
+        return k
+    if re.match(r"^\d+:", k):
+        return "chrX:" + k
+    return k
+
+
 def dedupe_group(df, on_duplicate):
     """One row per variant_key. `on_duplicate` resolves any variant_key with
     more than one distinct anchor_call among its matched oligos:
@@ -208,7 +249,7 @@ def dedupe_group(df, on_duplicate):
     """
     by_key = defaultdict(list)
     for _, row in df.iterrows():
-        by_key[row["variant_key"]].append(row["anchor_call"])
+        by_key[norm_key(row["variant_key"])].append(row["anchor_call"])
 
     resolved = {}
     for k, calls in by_key.items():
@@ -296,12 +337,17 @@ def main():
     # benign-role only if every group it pools is.
     benign_role_groups = {args.benign_group}
     counts = {}
+    # The resolved variant_key -> anchor_call map for each group, kept so that
+    # --pool can take a UNION rather than summing counts. See the pooling
+    # block below for why summing is wrong.
+    resolved_by_group = {}
     for g in groups:
         sub = df[df["curation_group"] == g]
         if sub.empty:
             print(f"WARNING: curation_group '{g}' has no rows in {args.join_tsv}",
                   file=sys.stderr)
         resolved = dedupe_group(sub, args.on_duplicate)
+        resolved_by_group[g] = resolved
         n = len(resolved)
         dep = sum(1 for c in resolved.values() if c == "depleted")
         counts[g] = (dep, n)
@@ -323,6 +369,7 @@ def main():
             print(f"--consequence_filter {args.consequence_filter}: "
                   f"{path} {before} -> {len(extra)} row(s)", file=sys.stderr)
         resolved = dedupe_group(extra, args.on_duplicate)
+        resolved_by_group[name] = resolved
         n = len(resolved)
         dep = sum(1 for c in resolved.values() if c == "depleted")
         counts[name] = (dep, n)
@@ -340,14 +387,54 @@ def main():
             sys.exit(f"--pool {name}: unknown group(s) {unknown}; must be "
                       f"one of {list(counts)} (define with --pathogenic_groups/"
                       f"--benign_group/--extra_group_tsv first)")
-        dep = sum(counts[m][0] for m in members)
-        n = sum(counts[m][1] for m in members)
+        # Union the member groups by variant_key rather than summing their
+        # counts. The benign sources overlap substantially -- 13 variants are
+        # in both the curated benign group and ClinVar, 17 in both curated and
+        # gnomAD, 73 in both ClinVar and gnomAD -- so summing counts inflates
+        # the denominator and, for any shared variant the assay calls
+        # depleted, the numerator too. Summing was the original behaviour and
+        # is why a pooled benign reference was reported as n=395 when the
+        # distinct count is 382.
+        no_map = [m for m in members if m not in resolved_by_group]
+        if no_map:
+            sys.exit(f"--pool {name}: no resolved variant map for {no_map}. "
+                     f"Every member must be a real group or an earlier --pool, "
+                     f"since pooling unions by variant_key rather than summing "
+                     f"counts.")
+        pooled = {}
+        conflicts = 0
+        for m in members:
+            for k, call in resolved_by_group[m].items():
+                if k in pooled and pooled[k] != call:
+                    conflicts += 1
+                    # same resolution policy as within a group
+                    if args.on_duplicate == "drop":
+                        pooled[k] = None
+                        continue
+                    if args.on_duplicate == "conservative_depleted":
+                        pooled[k] = "depleted"
+                        continue
+                pooled.setdefault(k, call)
+        pooled = {k: v for k, v in pooled.items() if v is not None}
+        resolved_by_group[name] = pooled   # so a later --pool can build on it
+        summed = sum(counts[m][1] for m in members)
+        overlap = summed - len(pooled)
+        n = len(pooled)
+        dep = sum(1 for c in pooled.values() if c == "depleted")
         counts[name] = (dep, n)
         groups.append(name)
         if all(m in benign_role_groups for m in members):
             benign_role_groups.add(name)
-        print(f"Pooled group '{name}' = {'+'.join(members)}: n={n}, depleted={dep}",
-              file=sys.stderr)
+        note = ""
+        if overlap:
+            note = (f" ({overlap} variant(s) shared between members, counted "
+                    f"once; summing would have given n={summed})")
+        if conflicts:
+            note += (f" [{conflicts} shared variant(s) carried different calls "
+                     f"across members, resolved by --on_duplicate="
+                     f"{args.on_duplicate}]")
+        print(f"Pooled group '{name}' = {'+'.join(members)}: n={n}, "
+              f"depleted={dep}{note}", file=sys.stderr)
 
     rows = []
     print("\n=== Per-group depletion rate ===")
