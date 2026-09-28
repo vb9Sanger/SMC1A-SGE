@@ -458,6 +458,42 @@ which is why `--consequence_map` is needed: most controls are not in the curated
 carry no `consequence_class`, so without a class for them a matched run silently drops them
 rather than matching on nothing.
 
+#### A second calibration method, for contrast
+
+[`build_excalibr_input.py`](Code/investigations/build_excalibr_input.py) and
+[`excalibr_fit_quality.py`](Code/investigations/excalibr_fit_quality.py) support a calibration of
+the same assay by **ExCALIBR** (Zeiberg, Stewart et al. 2026, bioRxiv 2025.04.29.651326;
+`github.com/rosstewart/exCALIBR`), which is run from its own repository rather than from here.
+Where the Brnich scripts tier a categorical call, ExCALIBR models the four score distributions
+(P/LP, B/LB, gnomAD, synonymous) as skew-normal mixtures and returns a per-variant posterior in
+ACMG evidence points.
+
+The builder writes one input per disease arm, because SMC1A's two disorders act by different
+mechanisms and a single pathogenic sample would be bimodal — which is also the extension the
+paper flags as unevaluated. Three things in it are judgement calls rather than format
+requirements, and the docstring records each: splice-region synonymous variants are excluded
+from the functionally-normal reference (they deplete at 11.4% against 0.9% elsewhere, because
+SGE reports splicing), no SpliceAI filter is applied (that filter exists for cDNA assays), and
+curated-pathogenic variants seen in gnomAD keep both labels.
+
+It also uses the VCF triple rather than parsing `oligo_name`. The `chrX:pos_REF>ALT` pattern
+used elsewhere in this repo matches SNVs only — deletions are named `chrX:53380079_1del` — so
+keying on it drops 25,279 of 39,135 assayed rows. Anything else in this repo that parses
+variants out of oligo names inherits that limitation.
+
+`excalibr_fit_quality.py` exists because ExCALIBR's own `run_pipeline.py` (in their
+repository, not this one) evaluates the paper's fit-quality
+metric during fitting but does not serialise it; this recomputes the normalised Yang distance
+from the saved bootstrap fits.
+
+[`excalibr_pathomechanism.py`](Code/investigations/excalibr_pathomechanism.py) recovers
+P(M=1|Y=1) — the fraction of a disease arm's pathogenic variants whose mechanism the assay
+measures — which ExCALIBR exposes as `--pathomechanism-prior` but which cannot be obtained that
+way for a gene whose population prior falls below its trust floor: the reported quantity is
+P(Y=1) × P(M=1|Y=1), so a missing first factor makes it NaN, and the `--manual-prior` escape
+raises a NameError when combined with it. P(M=1|Y=1) itself does not depend on the prior, so
+this calls their own boundary estimator directly against fits the pipeline already wrote.
+
 **Reconciling the two calibration scripts.** Both normalise `variant_key` before counting
 (the three benign sources disagree on whether to write the contig, so without it no ClinVar key
 ever equals a curated or gnomAD one), and both take `--pool` as a union by variant_key rather
