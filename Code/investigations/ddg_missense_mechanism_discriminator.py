@@ -87,9 +87,28 @@ def load_benign_missense(clinvar_summary_tsv: str, ddg: pd.DataFrame) -> pd.Data
     return pd.DataFrame(rows)
 
 
+DEPLETING_TIERS = ("strongly depleting", "weakly depleting")
+
+
 def load_depleting_vus_missense(vus_tsv: str, ddg: pd.DataFrame) -> pd.DataFrame:
+    """The depleting missense VUS.
+
+    Selected on `mechanism_class` and `anchor_tier`, which describe the
+    variant, rather than on the `recommendation` string, which describes the
+    calibration and changes whenever the calibration does.
+
+    This used to filter `recommendation == "PS3 Strong"`. That matched the 13
+    depleting missense VUS until 2026-09-24, when the switch to a matched
+    missense odds ratio downgraded them to "PS3 Supporting (CI crosses 1 --
+    treat cautiously)". From then until 2026-09-29 the filter silently matched
+    the 8 PTV/splice variants instead -- of which 3 parse as missense at the
+    protein level, being splice-region variants that also change an amino acid
+    -- so the analysis ran on 3 wrong variants and reported no error. The
+    README's "13 PS3-Strong missense VUS" dates from before that change.
+    """
     df = pd.read_csv(vus_tsv, sep="\t", dtype=str)
-    df = df[df["recommendation"] == "PS3 Strong"]
+    df = df[(df["mechanism_class"] == "missense")
+            & (df["anchor_tier"].isin(DEPLETING_TIERS))]
     rows = []
     for _, r in df.iterrows():
         parsed = parse_missense_hgvs(r["HGVSp"])
@@ -130,7 +149,7 @@ def main():
     print(f"{len(benign)} ClinVar benign/likely-benign missense variant(s) matched", file=sys.stderr)
 
     vus = load_depleting_vus_missense(args.vus_reclassification_tsv, ddg)
-    print(f"{len(vus)} depleting missense VUS (PS3 Strong candidates) matched", file=sys.stderr)
+    print(f"{len(vus)} depleting missense VUS matched", file=sys.stderr)
 
     benign.to_csv(os.path.join(args.outdir, "benign_missense_ddg.tsv"), sep="\t", index=False)
     vus.to_csv(os.path.join(args.outdir, "vus_missense_ddg_mechanism_call.tsv"), sep="\t", index=False)

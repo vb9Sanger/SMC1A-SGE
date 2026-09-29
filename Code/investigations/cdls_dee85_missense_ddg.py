@@ -54,6 +54,7 @@ import argparse
 import re
 import sys
 
+import numpy as np
 import pandas as pd
 from scipy import stats
 
@@ -77,6 +78,36 @@ def parse_missense_hgvs(hgvs_p: str):
     if wt3 not in AA3TO1 or mut3 not in AA3TO1:
         return None
     return pos, AA3TO1[wt3], AA3TO1[mut3]
+
+
+def effect_size_report(a, b, label_a, label_b, n_boot=10000, seed=0):
+    """Rank-biserial correlation and a bootstrap CI on the median difference.
+
+    A p-value on its own cannot distinguish "these groups are alike" from
+    "this comparison has no power". With n=35 against n=11 that distinction
+    matters, so the non-significant result is reported alongside the effect
+    size it failed to detect and the range of differences still compatible
+    with the data.
+
+    Rank-biserial r is computed from U directly: r = 2U/(n_a.n_b) - 1, the
+    same quantity as (P(a>b) - P(b>a)). Signed so that a POSITIVE value means
+    `label_b` scores higher, matching how the groups read in the table above.
+    Conventional bands are 0.1 small, 0.3 medium, 0.5 large.
+    """
+    a = np.asarray(a, dtype=float); b = np.asarray(b, dtype=float)
+    a = a[~np.isnan(a)]; b = b[~np.isnan(b)]
+    if len(a) < 2 or len(b) < 2:
+        return "  (too few observations for an effect size)"
+    u, _ = stats.mannwhitneyu(a, b, alternative="two-sided")
+    r = 1.0 - 2.0 * u / (len(a) * len(b))          # +ve => b > a
+    rng = np.random.default_rng(seed)
+    diffs = [np.median(rng.choice(b, len(b), replace=True))
+             - np.median(rng.choice(a, len(a), replace=True)) for _ in range(n_boot)]
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    obs = float(np.median(b) - np.median(a))
+    return (f"  rank-biserial r={r:+.3f} ({label_b} higher if positive); "
+            f"median difference {label_b}-{label_a} = {obs:+.3f} "
+            f"kcal/mol, 95% CI {lo:+.3f} to {hi:+.3f}")
 
 
 def load_curated_missense(assay_join_tsv: str) -> pd.DataFrame:
@@ -143,6 +174,7 @@ def summarise(df: pd.DataFrame):
     if len(cdls) and len(dee85):
         u, p = stats.mannwhitneyu(cdls, dee85, alternative="two-sided")
         lines.append(f"Mann-Whitney U={u:.1f}, p={p:.4f}")
+        lines.append(effect_size_report(cdls, dee85, "CdLS", "DEE85"))
 
     lines.append("")
     lines.append("=== depleting vs non-depleting, within each disease group ===")
