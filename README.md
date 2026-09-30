@@ -458,6 +458,40 @@ which is why `--consequence_map` is needed: most controls are not in the curated
 carry no `consequence_class`, so without a class for them a matched run silently drops them
 rather than matching on nothing.
 
+#### Per-residue mutational constraint
+
+[`smc1a_mii.py`](Code/investigations/smc1a_mii.py) summarises the per-variant functional map
+as a per-residue constraint index, stratified by protein domain, and
+[`smc1a_mii_curated_overlay.py`](Code/investigations/smc1a_mii_curated_overlay.py) overlays the
+curated CdLS/DEE85/benign variants onto it.
+
+**Two indices per residue**, both collapsed to distinct amino acid substitutions first:
+**mean LFC** (the mean assay score across substitutions at that residue — the standard
+"mutational tolerance" of the deep-mutational-scanning literature, and the primary index here)
+and **MII** (the fraction of substitutions called functionally abnormal, following the
+definition in Jaramillo Calle's 2025 Cambridge thesis §5.3.4.6, applied there to CTCF). They
+correlate at Spearman ρ = −0.83 and agree on every conclusion; mean LFC leads because it keeps
+the effect size and rests on published methods.
+
+Collapsing to substitutions rather than variants matters for this library specifically: it
+includes multi-nucleotide codon replacements, so a median of 25 genomic variants per residue
+encode a median of 19 distinct substitutions — all 19 possible at 94% of positions. Counting
+variants would weight a substitution by how many codon paths reach it. The collapse also yields
+a free reproducibility statistic: of 6,565 substitutions reachable by more than one variant,
+97.0% agree on depleting vs not.
+
+Domain boundaries are fetched live from UniProt and InterPro and cached, never hard-coded. The
+ATPase head comes from InterPro IPR028468, which annotates it as **two** fragments because the
+domain is discontinuous in sequence — UniProt has no equivalent feature, since a UniProt
+`Domain` carries a single contiguous range and the SMC head is formed by the N- and C-termini
+folding together. The script exits rather than guessing if InterPro does not return exactly two
+fragments.
+
+The overlay uses **leave-one-out** indices throughout: each curated variant contributes ~1/19 of
+its own residue's index, and the analysis tests exactly that direction, so the variant's own
+substitution is removed before comparing. The effect turns out to be negligible (≤0.02 on
+either index) but it is removed rather than argued away.
+
 #### A second calibration method, for contrast
 
 [`build_excalibr_input.py`](Code/investigations/build_excalibr_input.py) and
