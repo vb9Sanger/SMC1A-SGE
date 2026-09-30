@@ -50,18 +50,40 @@ import pandas as pd
 
 BENIGN_VALUES = {"Benign", "Likely benign", "Benign/Likely benign"}
 
-# Normalises clinvar_variants_summary.tsv's Summary_Plot vocabulary to
+# Normalises clinvar_variants_summary.tsv's consequence vocabulary to
 # assay_join_all.tsv's consequence_class vocabulary, so a --consequence_filter
-# on 09_calibrate_sensitivity_oddspath.py can be applied consistently to both
-# the curated-set groups and this ClinVar-derived one. Only the classes that
-# actually matter for that filter are mapped explicitly; anything else passes
-# through lowercased as a reasonable fallback (not expected to be filtered on).
-SUMMARY_PLOT_TO_CONSEQUENCE_CLASS = {
+# on 09_calibrate_sensitivity_oddspath.py applies consistently to both the
+# curated-set groups and this ClinVar-derived one.
+#
+# Keyed on `Summary_Consequence`, not `Summary_Plot` (`DECISIONS_LOG.md` D156).
+# The two differ only in that Summary_Plot collapses Nonsense_Variant and
+# Frameshift_Variant into `LOF`, which this map would have no key for.
+#
+# This map is deliberately identical to `SUMMARY_TO_CLASS` in
+# 10_calibrate_by_tier.py, which normalises the same vocabulary for the
+# by-tier calibration. An earlier version mapped only the five classes the
+# missense-only filter needed and passed everything else through lowercased,
+# which produced non-canonical names (`splice_variant`,
+# `splice_polypyrimidine_tract_variant`) that no `--consequence_filter` value
+# would ever match -- so filtering on a splice class would have silently
+# contributed zero ClinVar controls instead of 86. Harmless for the
+# missense-only runs actually performed, since those exclude splice from both
+# sides anyway, but a trap. Every class is now mapped explicitly and anything
+# unrecognised raises rather than passing through.
+SUMMARY_TO_CONSEQUENCE_CLASS = {
     "Missense_Variant": "missense",
+    "Synonymous_Variant": "synonymous",
+    "Nonsense_Variant": "nonsense",
+    "Frameshift_Variant": "frameshift",
     "Inframe_Deletion": "inframe_deletion",
     "Inframe_Insertion": "inframe_insertion",
-    "Synonymous_Variant": "synonymous",
     "Intronic_Variant": "intronic",
+    "Splice_Variant": "splice_region",
+    "Splice_Polypyrimidine_Tract_Variant": "splice_polypyrimidine",
+    # `Others` is the source files' catch-all; it carries no single class, so
+    # it is passed through under a name no consequence filter matches, by
+    # design rather than by accident.
+    "Others": "others",
 }
 
 REVIEW_TIER_RANK = {
@@ -132,9 +154,17 @@ def main():
     df["anchor_call"] = df["anchor_tier"].map(
         lambda t: "depleted" if t in ("strongly depleting", "weakly depleting") else t
     )
-    df["consequence_class"] = df["Summary_Plot"].map(
-        lambda s: SUMMARY_PLOT_TO_CONSEQUENCE_CLASS.get(s, s.lower())
-    )
+    if "Summary_Consequence" not in df.columns:
+        sys.exit("--summary_tsv has no Summary_Consequence column; refusing to "
+                 "fall back on Summary_Plot (see D156)")
+    unknown = sorted(set(df["Summary_Consequence"].dropna())
+                     - set(SUMMARY_TO_CONSEQUENCE_CLASS))
+    if unknown:
+        sys.exit(f"unmapped Summary_Consequence value(s): {unknown}. Add them to "
+                 "SUMMARY_TO_CONSEQUENCE_CLASS rather than letting them through "
+                 "under a name no --consequence_filter will match.")
+    df["consequence_class"] = df["Summary_Consequence"].map(
+        SUMMARY_TO_CONSEQUENCE_CLASS)
 
     out = df[["variant_key", "anchor_call", "anchor_tier", "clnsig_norm",
               "review_status", "consequence_class"]].drop_duplicates("variant_key")
