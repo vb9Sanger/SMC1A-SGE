@@ -299,11 +299,11 @@ The class answers *what category is this*; the flag answers *is this a predicted
 PTV*. Different questions, different fields. Any new analysis that selects on
 consequence must use `consequence_class` (curated/join tables) or
 `Summary_Consequence` (source meta and ClinVar/gnomAD summary tables) — never
-`Consequence` or `Summary_Plot`. See `DECISIONS_LOG.md` D156.
+`Consequence` or `Summary_Plot`.
 
 Four further scripts are verification rather than pipeline stages, run on demand rather
-than in sequence. They were written during a full audit of the curated set
-(`DECISIONS_LOG.md` D141–D151) and are kept because each one caught something:
+than in sequence. They were written during a full audit of the curated set and are kept
+because each one caught something:
 
 | script | what it checks |
 |---|---|
@@ -498,6 +498,23 @@ which is why `--consequence_map` is needed: most controls are not in the curated
 carry no `consequence_class`, so without a class for them a matched run silently drops them
 rather than matching on nothing.
 
+#### Pilot screen
+
+[`pilot_screen_analysis.py`](Code/investigations/pilot_screen_analysis.py) tabulates the
+pilot SGE screen of two exons, which was run ahead of the full screen to establish that the
+assay discriminates variant classes.
+
+**Input:** the pilot workbook of per-library, per-oligo DESeq2 results (`--pilot_xlsx`), plus
+the exon map (`--exon_map`) for exon spans. It takes no full-screen input: the pilot LFCs are
+not adjusted for positional bias, which `pos_adj_log2FoldChange_raw` does account for, so
+pilot and full-screen scores are not combined anywhere in this pipeline.
+
+**Output:** a per-variant table with LFC at each timepoint and the Day 15 call; depletion rate
+and median LFC per consequence class within each HDR library; the per-timepoint trajectory of
+protein-truncating against synonymous variants; and a per-library QC flag for libraries
+yielding no significance calls. Consequence classes follow `Summary_Consequence`, as
+everywhere else here.
+
 #### Per-residue mutational constraint
 
 [`smc1a_mii.py`](Code/investigations/smc1a_mii.py) summarises the per-variant functional map
@@ -510,8 +527,9 @@ curated CdLS/DEE85/benign variants onto it.
 "mutational tolerance" of the deep-mutational-scanning literature, and the primary index here)
 and **MII** (the fraction of substitutions called functionally abnormal, following the
 definition in Jaramillo Calle's 2025 Cambridge thesis §5.3.4.6, applied there to CTCF). They
-correlate at Spearman ρ = −0.83 and agree on every conclusion; mean LFC leads because it keeps
-the effect size and rests on published methods.
+correlate at Spearman ρ = −0.82 and agree on every conclusion except the curated overlay's
+CdLS-vs-DEE85 arm separation (mean LFC p = 0.045, MII p = 0.075); mean LFC leads because it
+keeps the effect size and rests on published methods.
 
 Collapsing to substitutions rather than variants matters for this library specifically: it
 includes multi-nucleotide codon replacements, so a median of 25 genomic variants per residue
@@ -844,4 +862,3 @@ purposes that don't depend on its disease-condition attribution being reliable:
   full, unrestricted calibration of necessity, not by choice).
 
 ---
-
