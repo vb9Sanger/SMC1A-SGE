@@ -268,7 +268,20 @@ def main():
     g["variant_key"] = "chrX:" + pos + ":" + g.vcf_ref + ":" + g.vcf_alt
     g = g.drop_duplicates("variant_key")
 
-    mis = g[g.Consequence.str.startswith("missense", na=False)].copy()
+    # Summary_Consequence, not the raw VEP Consequence and not Summary_Plot.
+    # `Consequence.startswith("missense")` also catches the 1,038
+    # `missense_variant,splice_region_variant` calls that both summary columns
+    # class as Splice_Variant, and 28.5% of those deplete -- consistent with a
+    # real splice effect rather than a missense one. Summary_Consequence rather
+    # than Summary_Plot because the two differ only in that Summary_Plot
+    # collapses nonsense and frameshift into "LOF", which is a mechanism label
+    # rather than a consequence class; Summary_Consequence maps 1:1 onto
+    # smc1a_lib.consequence_class.
+    if "Summary_Consequence" not in g.columns:
+        sys.exit("--gnomad_summary has no Summary_Consequence column; that is the "
+                 "field this project classes variants by, so refusing to fall "
+                 "back on the raw VEP Consequence")
+    mis = g[g.Summary_Consequence == "Missense_Variant"].copy()
     mis["aa_pos"] = pd.to_numeric(mis.Protein_position, errors="coerce")
     mis["aa_sub"] = mis.HGVSp.str.extract(r"p\.([A-Za-z]{3}\d+[A-Za-z]{3})$")[0]
     mis = mis[mis.aa_pos.notna() & mis.aa_sub.notna()].copy()

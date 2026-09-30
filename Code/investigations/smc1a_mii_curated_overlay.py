@@ -125,7 +125,8 @@ def main():
     pos = g.position.astype(str).str.replace(r"\.0$", "", regex=True)
     g["variant_key"] = "chrX:" + pos + ":" + g.vcf_ref + ":" + g.vcf_alt
     g = g.drop_duplicates("variant_key")
-    gm = g[g.Consequence.str.startswith("missense", na=False)
+    # Summary_Consequence, per the project convention -- see smc1a_mii.py
+    gm = g[(g.Summary_Consequence == "Missense_Variant")
            & g.in_gnomad.astype(str).str.lower().isin(("true", "1", "yes"))].copy()
     gm["aa_pos"] = pd.to_numeric(gm.Protein_position, errors="coerce")
     gm["aa_sub"] = gm.HGVSp.str.extract(SUB_RE)[0]

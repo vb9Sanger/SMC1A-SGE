@@ -71,7 +71,7 @@ def lookup_ddg(ddg: pd.DataFrame, pos: int, wt1: str, mut1: str):
 
 def load_benign_missense(clinvar_summary_tsv: str, ddg: pd.DataFrame) -> pd.DataFrame:
     df = pd.read_csv(clinvar_summary_tsv, sep="\t", dtype=str)
-    df = df[(df["Summary_Plot"] == "Missense_Variant") & (df["clnsig_norm"].isin(BENIGN_LABELS))]
+    df = df[(df["Summary_Consequence"] == "Missense_Variant") & (df["clnsig_norm"].isin(BENIGN_LABELS))]
     rows = []
     for _, r in df.drop_duplicates("HGVSp").iterrows():
         parsed = parse_missense_hgvs(r["HGVSp"])

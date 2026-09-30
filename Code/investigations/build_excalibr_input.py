@@ -156,13 +156,24 @@ def main():
     in_gnomad = set(g.index[g.in_gnomad.astype(str).str.lower()
                             .isin(("true", "1", "yes"))])
 
-    syn_mask = g.Consequence.str.contains("synonymous", na=False)
-    if not a.keep_splice_synonymous:
-        splice = g.Consequence.str.contains("splice", na=False)
-        dropped = int((syn_mask & splice).sum())
-        syn_mask &= ~splice
-        print(f"synonymous sample: excluded {dropped} splice-region "
-              f"synonymous variants (see docstring note 1)")
+    # Summary_Consequence is the project's class field. It already resolves
+    # `splice_region_variant,synonymous_variant` to Splice_Variant rather than
+    # Synonymous_Variant, so selecting on it performs the exclusion that note 1
+    # in the docstring argues for -- no separate splice filter is needed.
+    if "Summary_Consequence" not in g.columns:
+        sys.exit("--gnomad_summary has no Summary_Consequence column; refusing to "
+                 "fall back on the raw VEP Consequence")
+    syn_mask = g.Summary_Consequence == "Synonymous_Variant"
+    if a.keep_splice_synonymous:
+        syn_mask |= (g.Consequence.str.contains("synonymous", na=False)
+                     & g.Consequence.str.contains("splice", na=False))
+        print("synonymous sample: splice-region synonymous variants RETAINED "
+              "(--keep_splice_synonymous)")
+    else:
+        n_excl = int((g.Consequence.str.contains("synonymous", na=False)
+                      & g.Consequence.str.contains("splice", na=False)).sum())
+        print(f"synonymous sample: Summary_Consequence == Synonymous_Variant, which "
+              f"excludes {n_excl} splice-region synonymous variants")
     synonymous = set(g.index[syn_mask])
 
     # A variant asserted pathogenic must never sit in the benign or synonymous

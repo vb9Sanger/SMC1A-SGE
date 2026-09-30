@@ -66,7 +66,7 @@ The mapping is deliberately conservative, not automatic-for-everything:
 Inputs
 ------
 --summary_tsv    clinvar_variants_summary.tsv (sge_clinvar_intersect.py).
-                 Needs: clnsig_norm, Summary_Plot, anchor_tier,
+                 Needs: clnsig_norm, Summary_Consequence, anchor_tier,
                  pos_adj_log2FoldChange_raw, HGVSp, variant identifying
                  columns.
 --or_tsv         odds_ratios.tsv from 09_calibrate_sensitivity_oddspath.py's
@@ -106,7 +106,16 @@ import sys
 
 import pandas as pd
 
-PTV_SPLICE_CLASSES = {"LOF", "Splice_Variant", "Splice_Polypyrimidine_Tract_Variant"}
+# Keyed on `Summary_Consequence`, the project's single consequence vocabulary
+# (DECISIONS_LOG.md D156). The equivalent `Summary_Plot` column collapses
+# Nonsense_Variant + Frameshift_Variant into a single `LOF` value, which is a
+# misnomer -- a missense variant can also be loss-of-function, so what that
+# label really means is "PTV". Both terms are listed explicitly here instead.
+# The partition is identical either way; on the current ClinVar release the
+# VUS set happens to contain no nonsense or frameshift variant at all, so the
+# switch is results-neutral, but it will stay correct if a refresh adds one.
+PTV_SPLICE_CLASSES = {"Nonsense_Variant", "Frameshift_Variant",
+                      "Splice_Variant", "Splice_Polypyrimidine_Tract_Variant"}
 MISSENSE_CLASSES = {"Missense_Variant"}
 NOT_MAPPED_CLASSES = {"Inframe_Deletion", "Inframe_Insertion", "Synonymous_Variant",
                        "Intronic_Variant", "Others"}
@@ -179,7 +188,7 @@ def main():
     print(f"\n{len(vus)} VUS row(s) in {args.summary_tsv}", file=sys.stderr)
 
     def classify(row):
-        mclass = mechanism_class(row["Summary_Plot"])
+        mclass = mechanism_class(row["Summary_Consequence"])
         tier = row["anchor_tier"]
         if tier == "enriched":
             return mclass, "manual_review", "enriched call, not evaluated by this framework"
@@ -200,7 +209,7 @@ def main():
     results = vus.apply(classify, axis=1, result_type="expand")
     results.columns = ["mechanism_class", "recommendation", "note"]
     out = pd.concat([
-        vus[["Targeton_ID", "position", "HGVSc", "HGVSp", "Summary_Plot",
+        vus[["Targeton_ID", "position", "HGVSc", "HGVSp", "Summary_Consequence",
              "anchor_tier", "pos_adj_log2FoldChange_raw", "clnsig_norm", "clinvar_id"]],
         results,
     ], axis=1)
