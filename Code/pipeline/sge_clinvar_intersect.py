@@ -163,13 +163,20 @@ SPLIT_CONDITIONS = ["DEE only", "CdLS only"]
 
 # In the condition-split plots (DEE-only / CdLS-only), condition is already
 # fixed per panel, so points there are coloured by variant consequence type
-# instead. Read from 'Summary_Plot' (falling back to 'Summary_Consequence',
-# then 'Consequence'). Note 'Summary_Plot' is preferred over
-# 'Summary_Consequence' because the latter labels stop-gained variants as
-# 'Nonsense_Variant' rather than 'LOF'.
+# instead. Read from 'Summary_Consequence', the project's canonical consequence
+# column (DECISIONS_LOG.md D156), with Nonsense_Variant and Frameshift_Variant
+# collapsed to a single display category.
+#
+# That category is labelled **PTV**, not 'LOF'. An earlier version read
+# 'Summary_Plot', whose own collapsed value is 'LOF' -- a misnomer, since loss
+# of function is a mechanism and a missense variant can also be LOF; what the
+# label denotes is a protein-truncating variant. The grouping is unchanged:
+# across all 39,135 assayed variants Summary_Plot's 'LOF' is exactly
+# Nonsense_Variant + Frameshift_Variant, so the collapse below reproduces it
+# identically (D158).
 CONSEQUENCE_COLOURS = {
     "Missense_Variant":                    "#5aa95a",   # green
-    "LOF":                                 "#e05c4e",   # red
+    "PTV":                                 "#e05c4e",   # red
     "Synonymous_Variant":                  "#3f6b3f",   # dark green
     "Inframe_Deletion":                    "#b0b0b0",   # grey
     "Intronic_Variant":                    "#5b7fe0",   # blue
@@ -541,15 +548,23 @@ def get_depletion_column(df: pd.DataFrame) -> str:
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
+# Nonsense and frameshift share one display category, labelled PTV. See the
+# note on CONSEQUENCE_COLOURS for why the label is not 'LOF'.
+PTV_DISPLAY_CLASSES = {"Nonsense_Variant", "Frameshift_Variant", "LOF"}
+
+
 def get_consequence_label(row) -> str:
-    """Resolve the consequence-type label for a row: prefer 'Summary_Plot'
-    (matches the LOF/Missense_Variant/etc. category set used for colouring),
-    falling back to 'Summary_Consequence' (note: this labels stop-gained as
-    'Nonsense_Variant' rather than 'LOF'), then 'Consequence', then 'Unknown'."""
-    for col in ("Summary_Plot", "Summary_Consequence", "Consequence"):
+    """Resolve the consequence-type display label for a row.
+
+    Reads 'Summary_Consequence' (the canonical column), falling back to
+    'Summary_Plot' then 'Consequence' then 'Unknown'. Nonsense and frameshift
+    collapse to 'PTV'; 'LOF' is also mapped to 'PTV' so that an older input
+    carrying only Summary_Plot still colours and labels correctly."""
+    for col in ("Summary_Consequence", "Summary_Plot", "Consequence"):
         val = row.get(col)
         if val is not None and not (isinstance(val, float) and pd.isna(val)) and str(val).strip() != "":
-            return str(val)
+            val = str(val)
+            return "PTV" if val in PTV_DISPLAY_CLASSES else val
     return "Unknown"
 
 

@@ -141,6 +141,12 @@ if (is.null(input_glob) || is.null(out_dir)) {
 lfc_col              <- get_flag("--lfc_col", "pos_adj_log2FoldChange_raw")
 position_col_for_nmd <- get_flag("--position_col", "position")
 consequence_col      <- get_flag("--consequence_col", "consequence")
+# NOTE: "LOF" here is the value to match in the INPUT DATA (the meta files'
+# own vocabulary, where nonsense+frameshift collapse to "LOF"), so it must
+# keep that spelling or the anchor selection silently matches nothing. The
+# plot legends say PTV, which is what the category actually denotes -- loss
+# of function is a mechanism, and a missense variant can also be LOF.
+# See DECISIONS_LOG.md D156.
 lof_label            <- get_flag("--lof_label", "LOF")
 no_impact_labels     <- strsplit(get_flag("--no_impact_labels", "Synonymous_Variant,Intronic_Variant"), ",")[[1]]
 missense_label       <- get_flag("--missense_label", "Missense_Variant")
@@ -488,8 +494,8 @@ for (i in seq_along(files)) {
       lines(xs, dnorm(xs, mu_ctl_global, sqrt(var_ctl_global)), col = "blue", lwd = 1, lty = 3)
       abline(v = lof_threshold, lty = 2, lwd = 2)
       legend("topleft", bty = "n",
-             legend = c("all variants (grey)", "no-impact (blue)", "LOF (red)",
-                        "shrunk fit (solid)", "gene-wide fit (dotted)", "shrunk 95th pct LOF threshold"),
+             legend = c("all variants (grey)", "no-impact (blue)", "PTV (red)",
+                        "shrunk fit (solid)", "gene-wide fit (dotted)", "shrunk 95th pct PTV threshold"),
              fill = c(rgb(0.6,0.6,0.6,0.5), rgb(0.2,0.5,0.9,0.5), rgb(0.9,0.2,0.2,0.5), NA, NA, NA),
              border = NA, lty = c(NA, NA, NA, 1, 3, 2), col = c(NA, NA, NA, "black", "black", "black"),
              cex = 0.8)
@@ -513,8 +519,8 @@ for (i in seq_along(files)) {
         lines(xs, dnorm(xs, mu_ctl_global, sqrt(var_ctl_global)), col = "blue", lwd = 1, lty = 3)
         abline(v = lof_threshold, lty = 2, lwd = 2)
         legend("topleft", bty = "n",
-               legend = c("missense (grey)", "no-impact (blue)", "LOF (red)",
-                          "shrunk fit (solid)", "gene-wide fit (dotted)", "shrunk 95th pct LOF threshold"),
+               legend = c("missense (grey)", "no-impact (blue)", "PTV (red)",
+                          "shrunk fit (solid)", "gene-wide fit (dotted)", "shrunk 95th pct PTV threshold"),
                fill = c(rgb(0.6,0.6,0.6,0.5), rgb(0.2,0.5,0.9,0.5), rgb(0.9,0.2,0.2,0.5), NA, NA, NA),
                border = NA, lty = c(NA, NA, NA, 1, 3, 2), col = c(NA, NA, NA, "black", "black", "black"),
                cex = 0.8)
