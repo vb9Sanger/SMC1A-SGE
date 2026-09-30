@@ -468,8 +468,8 @@ bound, which requires no convention. The argument is set out in full in the thes
 (not in this repo, per the results policy above) and recorded as decisions **D152** (which
 correction, and why the bound is the defensible statement) and **D153** (which benign
 reference, and why). Enlarging the reference turned out to matter more than the choice of
-correction: on the matched cut the corrections disagreed across a tier boundary at n=17 and
-agree at n=291.
+correction: on the matched cut the two corrections disagreed across a tier boundary against
+the smallest reference and agree against the largest.
 
 One related fix lives in the code rather than the write-up. Where *both* cells are zero — no
 pathogenic variant occupies a tier and no benign one does either — a Haldane correction returns
@@ -862,3 +862,4 @@ purposes that don't depend on its disease-condition attribution being reliable:
   full, unrestricted calibration of necessity, not by choice).
 
 ---
+
