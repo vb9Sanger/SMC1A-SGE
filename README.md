@@ -261,6 +261,46 @@ contains that curation pipeline and its join against this screen's results, run 
 
 `smc1a_lib.py` / `smc1a_schema.py` are shared library code, not run directly.
 
+#### One consequence vocabulary (`smc1a_lib.py`, pipeline v0.55)
+
+The source meta-consequence files carry three consequence columns, and mixing them
+was a real source of error, so the rule is fixed in one place:
+
+| column | what it is | used? |
+|---|---|---|
+| `Consequence` | raw VEP string, most specific, **does not prioritise** when a variant has several terms | no — selecting on it over-includes (e.g. `startswith("missense")` matches `missense_variant,splice_region_variant`) |
+| `Summary_Consequence` | the prioritised call, specific | **yes — canonical** |
+| `Summary_Plot` | the same prioritisation, but collapses `Nonsense_Variant` + `Frameshift_Variant` into `LOF` | no |
+
+`Summary_Plot` is not used because **`LOF` is a misnomer** — loss of function is a
+mechanism and a missense variant can be LOF; what that label actually denotes is
+*PTV*. It also breaks concretely: `10_calibrate_by_tier.py`'s `SUMMARY_TO_CLASS`
+map keys on `Nonsense_Variant` and `Frameshift_Variant`, which exist only in
+`Summary_Consequence`.
+
+`CONSEQUENCE_ORDER` in `smc1a_lib.py` reproduces `Summary_Consequence`'s
+prioritisation (splice above every protein-level consequence) while staying
+finer-grained — `Others` resolves to seven specific classes and `Splice_Variant`
+to three. It is validated 32/32 against the source column.
+
+**PTV status is a separate field, not derived from the class.** With splice
+outranking everything, a `stop_gained,splice_region_variant` variant classes as
+`splice_region`, which is not a PTV class — deriving PTV status from the class
+would silently drop 81 library variants. `is_predicted_ptv(so_terms)` reads the
+SO terms directly instead:
+
+```python
+PTV_SO_TERMS = {"stop_gained", "frameshift_variant", "splice_acceptor_variant",
+                "splice_donor_variant", "start_lost", "transcript_ablation",
+                "feature_truncation", "feature_elongation"}
+```
+
+The class answers *what category is this*; the flag answers *is this a predicted
+PTV*. Different questions, different fields. Any new analysis that selects on
+consequence must use `consequence_class` (curated/join tables) or
+`Summary_Consequence` (source meta and ClinVar/gnomAD summary tables) — never
+`Consequence` or `Summary_Plot`. See `DECISIONS_LOG.md` D156.
+
 Four further scripts are verification rather than pipeline stages, run on demand rather
 than in sequence. They were written during a full audit of the curated set
 (`DECISIONS_LOG.md` D141–D151) and are kept because each one caught something:
