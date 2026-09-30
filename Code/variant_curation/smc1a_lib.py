@@ -607,7 +607,7 @@ CONSEQUENCE_CLASS = {
     "splice_donor_variant": "splice_donor",
     "splice_donor_5th_base_variant": "splice_region",
     "splice_region_variant": "splice_region",
-    "splice_polypyrimidine_tract_variant": "splice_region",
+    "splice_polypyrimidine_tract_variant": "splice_polypyrimidine",
     "splice_donor_region_variant": "splice_region",
     "intron_variant": "intronic",
     "5_prime_UTR_variant": "utr5",
@@ -622,25 +622,83 @@ CONSEQUENCE_CLASS = {
     "transcript_amplification": "cnv_gain",
 }
 
-# Predicted loss-of-function classes (the classes SGE depletion is expected to
-# report on directly).
+# Predicted loss-of-function classes. NOTE these are classes, and since
+# 2026-09-30 `consequence_class` ranks splice above the protein-level
+# consequences, so a stop_gained that also lies in a splice region now
+# classes as `splice_region`. Do NOT test PTV status by looking a class up in
+# this set -- use `is_predicted_ptv` below, which reads the SO terms directly.
 PTV_CLASSES = {"nonsense", "frameshift", "splice_acceptor", "splice_donor",
                "start_lost", "cnv_whole_gene", "cnv_partial"}
 
+# SO terms that make a variant a predicted PTV in their own right, whatever
+# else co-occurs with them.
+PTV_SO_TERMS = {"stop_gained", "frameshift_variant", "splice_acceptor_variant",
+                "splice_donor_variant", "start_lost", "transcript_ablation",
+                "feature_truncation", "feature_elongation"}
+
+# Precedence for `consequence_class`, matching the `Summary_Consequence` field of the
+# meta consequence files -- see that function's docstring.
+CONSEQUENCE_ORDER = [
+    "cnv_whole_gene", "cnv_partial",
+    "splice_polypyrimidine",
+    "splice_acceptor", "splice_donor", "splice_region",
+    "inframe_deletion",
+    # nonsense above frameshift, matching Summary_Consequence, which resolves
+    # the single `stop_gained,frameshift_variant` variant in the library to
+    # Nonsense_Variant. The pre-2026-09-30 order had frameshift first.
+    "nonsense", "frameshift",
+    "inframe_insertion", "start_lost", "stop_lost", "protein_altering",
+    "missense", "synonymous", "coding_unknown",
+    "utr5", "utr3", "intronic", "upstream", "downstream", "cnv_gain",
+]
+
 
 def consequence_class(so_terms) -> str:
-    """Most severe harmonised class from a list of VEP SO terms."""
-    order = ["cnv_whole_gene", "cnv_partial", "frameshift", "nonsense",
-             "splice_acceptor", "splice_donor", "start_lost", "stop_lost",
-             "inframe_deletion", "inframe_insertion", "protein_altering",
-             "missense", "splice_region", "synonymous", "coding_unknown",
-             "utr5", "utr3", "intronic", "upstream", "downstream", "cnv_gain"]
-        # unknown terms fall through to 'other'
+    """Harmonised class from a list of VEP SO terms, by `CONSEQUENCE_ORDER`.
+
+    **The ordering reproduces the `Summary_Consequence` field of the meta consequence
+    files** (`original_input/input/*_meta_consequences.tsv`), which is the
+    project's convention for what class a variant belongs to. Validated to
+    reproduce it for all 32 distinct VEP consequence strings in the library,
+    with one deliberate exception: `stop_retained_variant` resolves here to
+    `synonymous` where `Summary_Consequence` says `Others`, which is the intended
+    refinement of that catch-all category into a specific annotation.
+
+    **Changed 2026-09-30.** The previous ordering ranked `missense` *above*
+    `splice_region`, so the 1,115 library variants annotated
+    `missense_variant,splice_region_variant` classed as missense while
+    `Summary_Consequence` classed them `Splice_Variant`. That made the same variant a
+    missense in the curated set and a splice variant in every assay-side
+    analysis. Concordance with `Summary_Consequence` across the 215 curated-to-assay
+    oligo rows was 96.3% (8 discordances, all of this form). Splice now
+    outranks every protein-level consequence, matching `Summary_Consequence`.
+
+    `splice_polypyrimidine_tract_variant` also gains its own class rather than
+    folding into `splice_region`, because `Summary_Consequence` gives it a separate
+    category and ranks it above `splice_region`.
+
+    **This function no longer determines PTV status** -- see `is_predicted_ptv`.
+    """
     classes = {CONSEQUENCE_CLASS.get(t, "other") for t in so_terms}
-    for o in order:
+    for o in CONSEQUENCE_ORDER:
         if o in classes:
             return o
     return "other"
+
+
+def is_predicted_ptv(so_terms) -> bool:
+    """True when any SO term is loss-of-function in its own right.
+
+    Read from the SO terms, not from `consequence_class`, because the two
+    answer different questions. A `stop_gained,splice_region_variant` variant
+    *classes* as `splice_region` (matching `Summary_Consequence`, which treats the
+    classes as mutually exclusive display categories) but it is still a
+    premature termination codon and still a predicted PTV. 81 variants in the
+    library are of this shape -- 77 `stop_gained` and 4 `frameshift_variant`
+    co-occurring with `splice_region_variant` -- and deriving PTV status from
+    the collapsed class would silently drop all of them.
+    """
+    return bool(PTV_SO_TERMS & set(so_terms))
 
 
 # --------------------------------------------------------------------------

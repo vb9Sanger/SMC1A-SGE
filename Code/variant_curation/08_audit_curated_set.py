@@ -125,9 +125,14 @@ for r in rows:
             f"{r['hgvs_c_mane']} {p} -> {cls}")
     if "fs" in p and cls not in (("frameshift",) + SPLICE):
         fail["A6 fs but wrong class"].append(f"{r['hgvs_c_mane']} {p} -> {cls}")
-    # a true missense: three-letter ref and alt residues, alt not a stop
+    # a true missense: three-letter ref and alt residues, alt not a stop.
+    # SPLICE is allowed for the same reason it is allowed above: since
+    # 2026-09-30 `consequence_class` follows Summary_Consequence precedence, so
+    # a `missense_variant,splice_region_variant` call classes as splice_region
+    # while its protein description is still a plain substitution. The class
+    # and the protein consequence answer different questions.
     mm = re.fullmatch(r"p\.\(?([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})\)?", p)
-    if mm and mm.group(3) != "Ter" and cls != "missense":
+    if mm and mm.group(3) != "Ter" and cls not in (("missense",) + SPLICE):
         fail["A6 substitution but not missense"].append(
             f"{r['hgvs_c_mane']} {p} -> {cls}")
 

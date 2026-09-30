@@ -193,6 +193,13 @@ def main():
     # the first attempt collapsed the matched reference from 14 to 3 this way.
     # ClinVar and gnomAD both carry Summary_Consequence keyed by oligo_name,
     # in a different vocabulary, so it is mapped onto the curated one.
+    # Summary_Consequence, NOT Summary_Plot. The two are the same field except
+    # that Summary_Plot collapses Nonsense_Variant and Frameshift_Variant into
+    # "LOF" -- a mechanism label, not a consequence class, and one this map has
+    # no key for, so selecting on Summary_Plot would silently drop every
+    # nonsense and frameshift control. Summary_Consequence also maps 1:1 onto
+    # the pipeline's own `consequence_class` (smc1a_lib.consequence_class,
+    # validated 32/32 against it).
     SUMMARY_TO_CLASS = {
         "Missense_Variant": "missense",
         "Synonymous_Variant": "synonymous",
@@ -202,7 +209,7 @@ def main():
         "Inframe_Insertion": "inframe_insertion",
         "Intronic_Variant": "intronic",
         "Splice_Variant": "splice_region",
-        "Splice_Polypyrimidine_Tract_Variant": "splice_region",
+        "Splice_Polypyrimidine_Tract_Variant": "splice_polypyrimidine",
     }
     OLIGO_KEY = re.compile(r"(chrX):(\d+)_([ACGT]+)>([ACGT]+)")
     for path in a.consequence_map:

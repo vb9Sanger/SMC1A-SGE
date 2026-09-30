@@ -1430,9 +1430,16 @@ def main():
                                   or L.clean(first.get("consequence_class"))),
             "consequence_terms": (L.clean(res.get("consequence_terms"))
                                   or L.clean(first.get("consequence_terms"))),
-            "is_predicted_ptv": str((L.clean(res.get("consequence_class"))
-                                     or L.clean(first.get("consequence_class"))
-                                     ) in L.PTV_CLASSES),
+            # From the SO terms, not the collapsed class: since 2026-09-30
+            # `consequence_class` follows Summary_Consequence precedence, where splice
+            # outranks everything, so a stop_gained in a splice region classes
+            # as `splice_region` while remaining a predicted PTV. See
+            # L.is_predicted_ptv.
+            "is_predicted_ptv": str(L.is_predicted_ptv(
+                (L.clean(res.get("consequence_terms"))
+                 or L.clean(first.get("consequence_terms"))
+                 or L.clean(res.get("consequence_class"))
+                 or "").replace(",", ";").split(";"))),
             "exon": L.clean(res.get("exon")) or L.clean(first.get("exon")),
             "intron": L.clean(res.get("intron")),
 
