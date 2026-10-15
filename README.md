@@ -1,5 +1,11 @@
 # SMC1A SGE
 
+Saturation genome editing of the entire *SMC1A* coding sequence in HAP1 cells: 27 targetons
+across 25 coding exons, of which 25 targetons returned analysable data. This repository holds
+the analysis code, in the order it runs.
+
+---
+
 ## HDR Oligo Design
 
 ### Background:
@@ -314,9 +320,10 @@ because each one caught something:
 
 #### Two things the step numbering doesn't tell you
 
-**`annotate_dee85_missense_domain_hotspot.py` runs between 05 and 06, not after
-everything.** Step 05 does not write the three `literature_domain_hotspot*` columns; that
-investigation script (STEP NINE) adds them afterwards, to *both*
+**`annotate_domain_assignment.py` runs between 05 and 06, not after
+everything.** Step 05 does not write the `domain_assignment` / `in_atpase_head` /
+`in_hinge` / `in_reported_cluster` columns, nor the `literature_domain_hotspot*` ones
+retained alongside them; that investigation script (STEP NINE) adds them afterwards, to *both*
 `smc1a_variants_curated.tsv` and `smc1a_variants_all.tsv`. A registry rebuild drops them
 silently — nothing errors, the columns are simply gone, and `06_join_assay.py` then carries
 a narrower table through to the join. Re-run it after any rebuild of step 05, before step
@@ -458,16 +465,23 @@ arms or in ClinVar reaches AC ≥ 3 in gnomAD.
 **Zero benign cells.** Several comparisons have no depleting benign control at all, and the
 gene is the reason — SMC1A is missense-constrained, so benign missense variants barely exist
 and no amount of further *clinical* curation produces a larger matched reference (the curated
-benign group contributes 3 of them, and all of ClinVar adds 9). Where that happens the
+benign group contributes 2 of them, and all of ClinVar adds 9). Where that happens the
 maximum likelihood estimate of LR+ is infinite and any finite figure comes from a correction,
 not from data. The script therefore reports **both** the Haldane-Anscombe convention `09_...py`
 uses (+0.5 to every cell) and the correction Brnich et al. themselves use (+1 misclassified
 variant per set), because the two can differ by a factor of two and straddle a tier boundary.
-Neither should be quoted as a tier on its own; the defensible statement is the confidence
-bound, which requires no convention. The argument is set out in full in the thesis write-up
-(not in this repo, per the results policy above) and recorded as decisions **D152** (which
-correction, and why the bound is the defensible statement) and **D153** (which benign
-reference, and why). Enlarging the reference turned out to matter more than the choice of
+
+It also reports a **`fisher_p`** column, and that is what settles significance: Fisher's exact
+test on the raw 2×2 table is the only quantity here needing no zero-cell correction at all. It
+is one-sided in the direction under test, so the `no impact` rows are tested in the benign
+direction rather than the depleting one. The reporting convention built on this — gate on
+`fisher_p`, tier the **Brnich point estimate** per that paper's own Table 3, quote the 95% CI
+alongside, and give no evidence tier to a bound — is recorded as **D159**. It supersedes the
+earlier position that the confidence bound was the defensible statement to tier; tiering a
+bound turned out to be this project's own extension rather than anything the source frameworks
+do. The argument is set out in full in the thesis write-up (not in this repo, per the results
+policy above) and recorded as decisions **D152** (which correction), **D153** (which benign
+reference, and why) and **D159** (how all of it is reported). Enlarging the reference turned out to matter more than the choice of
 correction: on the matched cut the two corrections disagreed across a tier boundary against
 the smallest reference and agree against the largest.
 
@@ -483,12 +497,12 @@ python Code/investigations/extract_gnomad_benign_controls.py \
   --gnomad_summary sge_gnomad_summary.tsv \
   --curated_tsv smc1a_variants_all.tsv \
   --clinvar_summary clinvar_variants_summary.tsv \
-  --proxy_clinical --output gnomad_benign_controls.tsv
+  --proxy_clinical --output gnomad_proxy_clinical_controls.tsv
 
 python Code/variant_curation/10_calibrate_by_tier.py \
   --join_tsv assay_join_all.tsv \
   --clinvar_benign clinvar_benign_controls.tsv \
-  --gnomad_benign gnomad_benign_controls.tsv \
+  --gnomad_benign gnomad_proxy_clinical_controls.tsv \
   --consequence_map clinvar_variants_summary.tsv sge_gnomad_summary.tsv \
   --outdir calibration/ --label incl_PTV
 ```
@@ -525,18 +539,18 @@ curated CdLS/DEE85/benign variants onto it.
 **Two indices per residue**, both collapsed to distinct amino acid substitutions first:
 **mean LFC** (the mean assay score across substitutions at that residue — the standard
 "mutational tolerance" of the deep-mutational-scanning literature, and the primary index here)
-and **MII** (the fraction of substitutions called functionally abnormal, following the
-definition in Jaramillo Calle's 2025 Cambridge thesis §5.3.4.6, applied there to CTCF). They
-correlate at Spearman ρ = −0.82 and agree on every conclusion except the curated overlay's
-CdLS-vs-DEE85 arm separation (mean LFC p = 0.045, MII p = 0.075); mean LFC leads because it
-keeps the effect size and rests on published methods.
+and **MII** (the fraction of substitutions classified as functionally abnormal, following the
+definition in Jaramillo Calle's 2025 Cambridge thesis §5.3.4.6, applied there to CTCF). The two
+are strongly correlated and agree on essentially every conclusion; mean LFC leads because it
+retains the magnitude of each substitution's effect, where MII thresholds each substitution and
+discards it.
 
 Collapsing to substitutions rather than variants matters for this library specifically: it
-includes multi-nucleotide codon replacements, so a median of 25 genomic variants per residue
-encode a median of 19 distinct substitutions — all 19 possible at 94% of positions. Counting
-variants would weight a substitution by how many codon paths reach it. The collapse also yields
-a free reproducibility statistic: of 6,565 substitutions reachable by more than one variant,
-97.0% agree on depleting vs not.
+includes multi-nucleotide codon replacements, so one amino acid substitution is often reached by
+several genomic variants, and how many reach it depends on the wild-type codon rather than on
+the residue. Counting variants would weight a substitution by how many codon paths reach it.
+The collapse also yields a free reproducibility statistic, written to the run summary: the rate
+at which independently encoded routes to the same substitution agree on depleting vs not.
 
 Domain boundaries are fetched live from UniProt and InterPro and cached, never hard-coded. The
 ATPase head comes from InterPro IPR028468, which annotates it as **two** fragments because the
@@ -552,8 +566,7 @@ either index) but it is removed rather than argued away.
 
 #### A second calibration method, for contrast
 
-[`build_excalibr_input.py`](Code/investigations/build_excalibr_input.py) and
-[`excalibr_fit_quality.py`](Code/investigations/excalibr_fit_quality.py) support a calibration of
+[`build_excalibr_input.py`](Code/investigations/build_excalibr_input.py) supports a calibration of
 the same assay by **ExCALIBR** (Zeiberg, Stewart et al. 2026, bioRxiv 2025.04.29.651326;
 `github.com/rosstewart/exCALIBR`), which is run from its own repository rather than from here.
 Where the Brnich scripts tier a categorical call, ExCALIBR models the four score distributions
@@ -572,11 +585,6 @@ It also uses the VCF triple rather than parsing `oligo_name`. The `chrX:pos_REF>
 used elsewhere in this repo matches SNVs only — deletions are named `chrX:53380079_1del` — so
 keying on it drops 25,279 of 39,135 assayed rows. Anything else in this repo that parses
 variants out of oligo names inherits that limitation.
-
-`excalibr_fit_quality.py` exists because ExCALIBR's own `run_pipeline.py` (in their
-repository, not this one) evaluates the paper's fit-quality
-metric during fitting but does not serialise it; this recomputes the normalised Yang distance
-from the saved bootstrap fits.
 
 [`excalibr_pathomechanism.py`](Code/investigations/excalibr_pathomechanism.py) recovers
 P(M=1|Y=1) — the fraction of a disease arm's pathogenic variants whose mechanism the assay
@@ -609,7 +617,7 @@ It mirrors the ClinVar intersect script's structure (`sge_clinvar_intersect.py`,
 1. **Two** gnomAD sources per targeton (exomes + genomes), pooled per variant, rather than one ClinVar VCF.
 2. The cross-targeton summary TSV includes **every** assayed variant (matched or not) — testing for absence requires the full denominator, not just the hits.
 
-**Important:** this script assumes gnomAD v4.1 INFO field names (`AC`, `AN`, `AF`, `grpmax`, `AF_grpmax`), which have **not** been verified against the actual downloaded VCFs. Before running in earnest, check with `bcftools view -h <TID>_gnomad_exomes.vcf.gz | grep '^##INFO'` and adjust `--ac_field`/`--an_field`/`--af_field`/`--grpmax_af_field`/`--grpmax_pop_field` if the names differ (the script warns once per file if a configured field is never found).
+The script reads gnomAD v4.1 INFO field names (`AC`, `AN`, `AF`, `grpmax`, `AF_grpmax`). All five were checked against the headers of the downloaded per-targeton VCFs and are present in both the exomes and the genomes files. If adapting this to another gnomAD release, re-check with `bcftools view -h <TID>_gnomad_exomes.vcf.gz | grep '^##INFO'` and adjust `--ac_field`/`--an_field`/`--af_field`/`--grpmax_af_field`/`--grpmax_pop_field` — the script warns once per file if a configured field is never found, but a renamed field would otherwise read as absent data rather than as an error.
 
 #### Requirements:
 * `pip install pandas numpy scipy matplotlib`
@@ -638,8 +646,38 @@ By default only `FILTER=PASS` gnomAD records are kept; add `--include_non_pass` 
 * `gnomad_match_rate_by_tier.png` — bar chart of % gnomAD-matched per tier
 * `gnomad_af_by_tier.png` — boxplot of log10(pooled AF) per tier, gnomAD-matched variants only
 
+#### Representation by consequence class
+
+The pooled depleted-vs-no-impact test above is confounded, and
+[`gnomad_representation_by_consequence.py`](Code/investigations/gnomad_representation_by_consequence.py)
+is the comparison to read instead. Baseline gnomAD representation varies by more than
+twentyfold across consequence classes — synonymous and intronic variants are well
+represented, missense variants barely at all — and the assay's depleting calls are
+concentrated in precisely the classes where that baseline is lowest. A pooled odds ratio
+therefore partly measures the consequence composition of the depleting set rather than the
+effect of depletion, and overstates the contrast. Stratifying holds the baseline fixed.
+
+It runs from `sge_gnomad_summary.tsv` alone and emits both, so the size of the confound is
+visible rather than hidden. Classes where almost every variant is classified as depleting
+leave no within-class comparison pool; those rows are computed and flagged
+`no_comparison_pool` rather than dropped, since their absence from a reported table is
+itself something to be able to justify.
+
+```bash
+python Code/investigations/gnomad_representation_by_consequence.py \
+  --gnomad_summary gnomad_intersect_results/sge_gnomad_summary.tsv \
+  --outdir gnomad_intersect_results/
+```
+
+`--systematic_only` repeats the analysis over variants reached by the systematic mutators
+alone. Variants already reported in gnomAD v2.1/v3.1 were deliberately incorporated at the
+HDR oligo design stage, so a fraction of the matches arrived by that route rather than by
+the assay independently sampling population variation; those variants are overwhelmingly
+intronic, and the intronic row is the only one that moves materially. The flag exits rather
+than returning a null result if it matches no oligo-name tag, since a silently empty filter
+would read as a clean sensitivity check.
+
 #### Notes:
-* Verify gnomAD INFO field names against your actual VCFs before trusting the output (see Background above).
 * The `TARGETON_EXON` dict (targeton → exon number) used for the cross-targeton summary is
   hardcoded here and **separately duplicated** in `sge_clinvar_intersect.py` (STEP TEN,
   same dict, same values) — there's no shared source of truth, so if the exon map ever
@@ -662,63 +700,57 @@ into a later step:
   follow-up to `insilico_concordance.R`, restricted to the curated missense variants from
   STEP SEVEN: for `CdLS_pathogenic` vs `DEE85_pathogenic` missense variants specifically, do
   the predictor scores (SIFT, PolyPhen, CADD, REVEL) separate the two disease groups the way
-  the assay's own depletion tier does? Answer: no — none of the four predictors distinguish
-  the groups (Mann-Whitney p = 0.32-0.89; CADD nominally p=0.029 but on near-identical
-  medians), while the assay itself sharply does (0% of CdLS missense strongly depleting vs
-  64% of DEE85 missense). Predictors score "is this damaging", not "damaging by which
-  mechanism" — this is a concrete demonstration of that distinction, using the disease
-  groups this project's own curation established. Joins `06_join_assay.py`'s missense
-  analysis table (STEP SEVEN) with `insilico_concordance.R`'s merged predictor table on
-  oligo name + targeton.
-* [`cdls_dee85_missense_ddg.py`](Code/investigations/cdls_dee85_missense_ddg.py) — a more
-  mechanistic follow-up to the above: if depletion genuinely separates CdLS
-  (dominant-negative) from DEE85 (loss-of-function), a predicted change in protein
-  stability (ΔΔG) should show the same separation for a different reason — DEE85
-  depletion via unfolding, CdLS depletion via a specific functional/interaction defect
-  that need not destabilize the fold. ΔΔG itself is computed externally by
-  [ThermoMPNN](https://github.com/Kuhlman-Lab/ThermoMPNN) (MIT license; installs without
-  admin rights via `uv`, no FoldX/Rosetta license needed) run once as a full
-  site-saturation scan against the AlphaFold model of human SMC1A (UniProt Q14683); this
-  script reads that scan's output, maps each curated variant's HGVS protein notation onto
-  it (verifying the wild-type residue matches before accepting a lookup), and compares
-  groups. Whole-group CdLS-vs-DEE85 ΔΔG is not significant (p=0.20) — same conclusion as
-  the predictor comparison above — but the assay-depleting subset of each group tells a
-  cleaner story: DEE85's 7 depleting missense variants trend clearly destabilizing (median
-  ΔΔG 1.13 kcal/mol) versus its 4 non-depleting ones (0.46), while CdLS's one depleting
-  missense variant (`p.Glu502Lys`) sits at 0.29 — indistinguishable from its own group's
-  non-depleting background. Directionally consistent with mechanism separation throughout,
-  though the depleting-group sample sizes are too small to reach significance individually.
-* [`ddg_missense_mechanism_discriminator.py`](Code/investigations/ddg_missense_mechanism_discriminator.py)
-  — extends the ΔΔG comparison above with the two reference groups needed to interpret it:
-  ClinVar Benign/Likely-benign missense variants, and the depleting missense VUS from
-  `reclassify_clinvar_vus.py`. The point is to test whether "non-destabilizing" is actually
-  a CdLS-dominant-negative signature or just what an ordinary missense variant looks like.
-  It is the latter — benign, CdLS-non-depleting and CdLS-depleting are indistinguishable
-  (median ΔΔG 0.22–0.29), and only the DEE85-depleting and depleting-VUS groups separate
-  from that shared low-ΔΔG background. Raises, as an open proposal rather than an applied
-  rule, whether a depleting missense variant above the benign/CdLS band should route to the
-  DEE85-calibrated tier instead of the CdLS one.
-* [`ddg_gene_wide_depleting_missense_spread.py`](Code/investigations/ddg_gene_wide_depleting_missense_spread.py)
-  — tests that proposal at scale, against every depleting missense variant the assay calls
-  gene-wide, independent of any clinical curation status. Reports the distribution and the
-  fraction falling in the non-discriminating low-ΔΔG band. Exploratory and clinically
-  unfiltered: it says nothing about whether any individual variant is pathogenic, only what
-  the destabilizing/non-destabilizing split looks like at a scale the curated comparison
-  groups (n in the tens) cannot test.
-* [`annotate_dee85_missense_domain_hotspot.py`](Code/investigations/annotate_dee85_missense_domain_hotspot.py) —
-  a literature review of the CdLS/DEE85 mechanism literature turned up a specific,
+  the assay's own depletion tier does? Predictors score "is this damaging", not "damaging by
+  which mechanism", and this tests that distinction directly, using the disease groups this
+  project's own curation established rather than a database's condition field. Joins
+  `06_join_assay.py`'s missense analysis table (STEP SEVEN) with `insilico_concordance.R`'s
+  merged predictor table on oligo name + targeton. Figures belong in the write-up, not here,
+  per the results policy in STEP SEVEN.
+
+  It also records **predictor coverage** across the missense library, which is a fact about
+  the library rather than a comparison: SIFT and PolyPhen score every assayed missense
+  variant, while CADD and REVEL score single-nucleotide substitutions only. This library is
+  largely multi-nucleotide codon replacements, so their coverage is a minority of it.
+* [`build_predictor_context.py`](Code/investigations/build_predictor_context.py) — assembles
+  per-variant **orthogonal** annotation to set against the assay's calls, where the
+  predictors above are not orthogonal at all. Four sources chosen for independence rather
+  than performance: CADD (a trained pathogenicity predictor, and so partly circular with
+  clinical labels), phyloP per-base conservation from the UCSC 100-way vertebrate alignment,
+  relative solvent accessibility retrieved per residue from AlphaSync, and predicted change
+  in folding free energy from a ThermoMPNN site-saturation scan of the AlphaFold model of
+  Q14683. phyloP, RSA and ddG know nothing about pathogenicity, which is the point: CADD
+  agreeing with the assay is weak evidence, the other three agreeing is not.
+
+  Three things the script handles rather than assumes. RSA and pLDDT come from AlphaSync's
+  stored residue features, which for this entry were computed from an earlier AlphaFold DB
+  release than the model the ddG scan runs on, so the two are **not guaranteed to describe
+  identical coordinates** -- the docstring records where they diverge and by how much. ddG is
+  joined by parsing protein HGVS with the wild-type residue carried into the join key, so a
+  mismatch arrives as missing rather than silently picking up another substitution's score.
+  pLDDT is carried through per residue so that low-confidence regions of a predicted model
+  can be excluded downstream rather than quietly weighted in.
+* [`annotate_domain_assignment.py`](Code/investigations/annotate_domain_assignment.py) —
+  a review of the CdLS/DEE85 mechanism literature turned up a specific,
   independently-replicated claim (Baranano et al. 2022; Bozarth et al. 2023; Di Nardo
-  et al. 2026): the small non-loss-of-function (missense/in-frame) subset of DEE85
-  variants clusters in SMC1A's N-/C-terminal ATPase head domain, rather than being
-  scattered like the loss-of-function majority. This script cross-checks that claim
-  against the curated set's own 11 DEE85_pathogenic missense variants and adds three
-  columns (`literature_domain_hotspot`, `_domain`, `_source`) to
-  `smc1a_variants_curated.tsv`/`smc1a_variants_all.tsv` recording the result — 5/11
-  fall in the cited head domain (2 of them the literally-identical variants reported
-  in Baranano 2022), including 4/7 of the group's assay-depleting variants. `VARIANT_COLS`
-  in `06_join_assay.py` (STEP SEVEN) was extended so these columns carry through to
-  `assay_join_all.tsv` as well — which is why this script has to run *before* step 06 and
-  be re-run after any rebuild of step 05 (see STEP SEVEN's run-order note).
+  et al. 2026): the small non-truncating (missense/in-frame) subset of DEE85 variants
+  clusters in SMC1A's N-/C-terminal ATPase head and central hinge, rather than being
+  scattered like the truncating majority. This script assigns every curated variant to
+  a domain and flags whether it falls in that region, adding `domain_assignment`,
+  `in_atpase_head`, `in_hinge` and `in_reported_cluster` to
+  `smc1a_variants_curated.tsv`/`smc1a_variants_all.tsv`.
+
+  Boundaries come from `smc1a_domain_annotation.json` — the same UniProt/InterPro
+  annotation `smc1a_mii.py` uses, so the two analyses speak one structural language.
+  **This replaces an earlier publication-based approach**, which marked a variant
+  as being in the cluster only where a named publication explicitly placed it there.
+  That could only ever mark True a variant some paper had already discussed, so a
+  variant inside the head that nobody had written about was marked False; testing the
+  literature's claim with a method that can only recover what the literature named is
+  close to circular (**D161**). The publication-based columns are retained as
+  provenance, not as the test. `VARIANT_COLS` in `06_join_assay.py` (STEP SEVEN)
+  carries all of these through to `assay_join_all.tsv`, which is why this script runs
+  *before* step 06 and must be re-run after any rebuild of step 05 (see STEP SEVEN's
+  run-order note).
 * [`cassette_exon_consequence_analysis.py`](Code/investigations/cassette_exon_consequence_analysis.py) —
   tests whether cassette-exon-annotated exons show different depletion behaviour for synonymous
   and splice-region variants than non-cassette exons (Mann-Whitney, Fisher's exact). Its
@@ -726,12 +758,17 @@ into a later step:
   [`build_smc1a_exon_splice_events_table.py`](Code/investigations/build_smc1a_exon_splice_events_table.py)
   from UCSC's "Alt Events" track (`knownAlt`), fetched live via the UCSC REST API and
   intersected against each exon's genomic boundaries — no manual UCSC Table Browser export
-  needed. Result: splice-region variants deplete significantly more often in cassette exons
-  than non-cassette exons (32.6% vs 21.7%, Fisher's OR=1.75, p=6.5×10⁻¹³; confirmed on the
-  underlying continuous z-scores, Mann-Whitney p=6.1×10⁻⁸), while synonymous variants in the
-  same exons show no such difference (p=0.60) — the effect is specific to variants that
-  actually perturb a splice signal, not a general property of these exons tolerating more
-  or less variation overall.
+  needed. Synonymous variants in the same exons are compared in parallel as a specificity
+  control: they do not perturb a splice signal, so a difference among them would mean these
+  exons simply tolerate more or less variation overall, rather than being specifically
+  sensitive to splice disruption.
+
+  Three tests on the splice-region side, reported as Tables 4–6: Mann-Whitney on the
+  continuous z-scores, Fisher's exact on the proportion depleting, and — added 2026-10-08 —
+  the same comparison with the **exon as the unit of analysis**. The first two pool
+  thousands of variants and so assume an independence that variants sharing an exon's splice
+  context do not have; Table 6 repeats the contrast on one figure per targeton, which has far
+  less power and is the conservative reading to quote.
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
@@ -779,50 +816,19 @@ hardcodes `chrX` in its regex — it won't match oligo names for a gene on anoth
 chromosome. Also carries its own copy of the `TARGETON_EXON` dict (targeton → exon
 number) — see the STEP EIGHT note on why that's duplicated rather than shared.
 
-#### Plot domain maps
-
-[`sge_domain_map_clinvar.py`](Code/pipeline/sge_domain_map_clinvar.py) fetches SMC1A domain annotations from UniProt, maps them to genomic coordinates using a hardcoded SMC1A/hg38 exon table, and produces per-targeton lollipop + heatmap plots, optionally overlaying ClinVar P/LP variants.
-
-The UniProt ID, Ensembl transcript, protein length, and the genomic↔AA exon coordinate
-table are all hardcoded SMC1A/hg38 defaults (`--uniprot`/`--transcript` can override the
-first two, but the exon table itself is SMC1A-specific code, not a flag) — expect to edit
-the script, not just its arguments, before pointing it at a different gene.
-
-```bash
-python Code/pipeline/sge_domain_map_clinvar.py \
-  --input SMC1A_maveqc/all_screens/thesis/GMM_shrinkage/D4_ref/results/*.tsv \
-  --outdir SMC1A_maveqc/all_screens/thesis/GMM_shrinkage/D4_ref/plots/domain \
-  --clinvar SMC1A_maveqc/all_screens/clin_var/clinvar.vcf.gz
-```
-
 #### Investigate the discordant cases
 
 Discordant cases surfaced by the intersection above (functional score vs ClinVar
-classification disagreeing) are followed up with a three-script chain, in order:
+classification disagreeing) are followed up with a two-script chain, in order:
 
 1. [`investigate_clinvar_variants.py`](Code/investigations/investigate_clinvar_variants.py) —
    pulls submission-level detail (review status, dates, submitters) from ClinVar's
    `submission_summary.txt.gz` for a filtered or explicit subset of variants from
    `clinvar_variants_summary.tsv`. Run with **no filters** to process every ClinVar-matched
-   variant gene-wide, which the next two scripts require.
+   variant gene-wide, which the next script requires.
 2. [`check_omim_coding_patterns.py`](Code/investigations/check_omim_coding_patterns.py) — checks,
    gene-wide, how often individual submissions actually cite a DEE85-specific vs CdLS-specific
    OMIM code/term, rather than relying on ClinVar's own aggregated `condition` column.
-3. [`classify_both_mechanism.py`](Code/investigations/classify_both_mechanism.py) — for every
-   variant labelled `condition == "Both"`, determines whether that's one submission citing both
-   conditions together, or genuine cross-submitter disagreement.
-
-Also: [`check_de_novo_agreement.py`](Code/investigations/check_de_novo_agreement.py), a minor
-diagnostic checking that the VCF-level `ORIGIN` de-novo flag and the submission-level de-novo
-flag never silently disagree.
-
-#### ClinVar concordance
-
-[`sge_clinvar_concordance.py`](Code/pipeline/sge_clinvar_concordance.py) quantitatively compares
-SGE classification approaches against ClinVar P/LP vs B/LB calls (sensitivity/specificity/AUC),
-stratified by CdLS vs DEE. Given the condition-labelling issues above, read this as a
-demonstration of ClinVar's limits as ground truth for this gene — not as this project's primary
-validation, which is the clinical calibration against the curated truth set in STEP SEVEN.
 
 #### Assay sensitivity check
 
@@ -846,20 +852,27 @@ purposes that don't depend on its disease-condition attribution being reliable:
   widening it well beyond the curated set's own small `Exclude_Benign` group. Defensible because
   disease-condition attribution (what this step found unreliable) doesn't apply to a benign call;
   `--min_review_tier multi_submitter` is available for a stricter, smaller, higher-confidence cut.
-* [`reclassify_clinvar_vus.py`](Code/investigations/reclassify_clinvar_vus.py) — applies
-  STEP SEVEN's calibrated OddsPath tiers to the gene's actual ClinVar Uncertain-significance
-  calls, by consequence class: PTV/splice-class VUS that deplete borrow the DEE85-calibrated
-  tier, missense VUS that deplete borrow the CdLS-calibrated tier, and everything else —
-  inframe indels, enriched calls, non-depleting calls of any class — is left unmapped and
-  flagged for individual manual review rather than forced into a tier. The two mapped classes
-  intentionally draw on *different* calibration runs (`--or_tsv` vs `--missense_or_tsv`), not
-  the same one: Brnich et al. 2019 (the OddsPath framework this calibration follows)
-  recommends matching reference-control consequence class to the variant class under
-  interpretation, and a matched benign reference is constructible for missense/in-frame
-  variants (so the missense mapping uses that restricted, weaker, honestly-labelled
-  calibration) but not for PTV/splice (ClinVar has zero Benign/Likely-benign calls in the
-  actual PTV consequence classes for this gene, checked directly — so that mapping uses the
-  full, unrestricted calibration of necessity, not by choice).
+* [`reclassify_clinvar_vus.py`](Code/investigations/reclassify_clinvar_vus.py) — applies the
+  calibrated OddsPath tiers to the gene's actual ClinVar Uncertain-significance calls. Mapping
+  is **by depletion tier**, reading the per-tier calibration (`--ptv_splice_tsv`,
+  `--missense_tsv`) rather than a single binary depleted-vs-not odds ratio, so a strongly
+  depleting and a weakly depleting call do not collapse to the same evidence strength.
+
+  Three outcomes, and the distinctions between them are the point of the script:
+
+  - **PTV and splice-class VUS that deplete** take the tier calibrated on the arm given by
+    `--ptv_splice_arm`.
+  - **Missense VUS that deplete** are *not* assigned a disease-specific tier. Missense is the
+    predominant class in one disorder but variants of the other are also missense, so the arm
+    cannot be inferred from consequence class alone — the routing the earlier version did.
+    They are emitted as `observation_depleting_missense` instead: an observation of functional
+    abnormality, carrying no ACMG/AMP code. `--missense_policy route` restores the old
+    behaviour for comparison, but `observe` is the default and the documented choice.
+  - **Everything else** — in-frame indels, enriched calls, non-depleting calls of any class —
+    is left unmapped and flagged for manual review rather than forced into a tier.
+
+  Two gates apply before any tier is borrowed: `--alpha` on the cell's Fisher exact p, and
+  `--min_k_path`, a minimum number of pathogenic variants in the calibrating cell. The latter
+  is a judgement made here rather than a published rule, and the script's header says so.
 
 ---
-
