@@ -157,8 +157,17 @@ import pandas as pd
 # which is the same objection that keeps in-frame indels unmapped. Gene-wide
 # they also behave unlike canonical splice variants (6.0% strongly depleting
 # against 32.5%), and much more like missense (6.8%).
-PTV_SPLICE_CLASSES = {"Nonsense_Variant", "Frameshift_Variant", "Splice_Variant"}
-MISSENSE_CLASSES = {"Missense_Variant"}
+# `Summary_Consequence` pools canonical acceptor and donor sites with the
+# surrounding splice region under one `Splice_Variant` label, and only 18% of
+# that class is canonical. Membership of the PTV group is therefore taken from
+# the VEP sequence ontology terms rather than from the summary class, matching
+# `is_predicted_ptv` in `smc1a_lib.py`. PVS1 reaches canonical +/-1,2 sites and
+# the DEE85 truthset's splice contribution is canonical donors, so a
+# splice-region variant that is not a canonical site has no more claim on the
+# DEE85 tier than a missense variant does, and is routed the same way.
+PTV_SO_TERMS = {"stop_gained", "frameshift_variant", "splice_acceptor_variant",
+                "splice_donor_variant", "start_lost"}
+UNASSIGNABLE_CLASSES = {"Missense_Variant", "Splice_Variant"}
 NOT_MAPPED_CLASSES = {"Inframe_Deletion", "Inframe_Insertion", "Synonymous_Variant",
                        "Intronic_Variant", "Others",
                        "Splice_Polypyrimidine_Tract_Variant"}
@@ -166,11 +175,18 @@ NOT_MAPPED_CLASSES = {"Inframe_Deletion", "Inframe_Insertion", "Synonymous_Varia
 DEPLETED_TIERS = {"strongly depleting", "weakly depleting"}
 
 
-def mechanism_class(consequence: str) -> str:
-    if consequence in PTV_SPLICE_CLASSES:
-        return "ptv_or_splice"
-    if consequence in MISSENSE_CLASSES:
-        return "missense"
+def mechanism_class(summary: str, consequence: str) -> str:
+    """Route a variant by the evidence its consequence is able to carry.
+
+    `ptv_or_canonical_splice` can take the DEE85 tier. `arm_unassignable`
+    covers consequence classes occurring in both disorders, for which no
+    disease-specific tier applies however the variant behaves in the assay.
+    """
+    so = set((consequence or "").split(","))
+    if PTV_SO_TERMS & so:
+        return "ptv_or_canonical_splice"
+    if summary in UNASSIGNABLE_CLASSES:
+        return "arm_unassignable"
     return "not_mapped"
 
 
@@ -286,7 +302,8 @@ def main():
     print(f"\n{len(vus)} VUS row(s) in {args.summary_tsv}", file=sys.stderr)
 
     def classify(row):
-        mclass = mechanism_class(row["Summary_Consequence"])
+        mclass = mechanism_class(row["Summary_Consequence"],
+                                 row.get("Consequence", ""))
         tier = row["anchor_tier"]
         if tier == "enriched":
             return mclass, "manual_review", "enriched call, not evaluated by this framework"
@@ -295,21 +312,21 @@ def main():
                     "a single non-depleting call is not safe BS3 evidence")
         if tier not in DEPLETED_TIERS:
             return mclass, "manual_review", f"unrecognised anchor_tier value: {tier!r}"
-        if mclass == "missense" and args.missense_policy == "observe":
+        if mclass == "arm_unassignable" and args.missense_policy == "observe":
             # No disease-specific tier. Both SMC1A disorders produce missense
             # variants, the assay measures depletion rather than mechanism, and
             # the two arms' calibrations differ by a full tier -- so routing
             # would assert an arm assignment the data cannot support. The
             # depletion itself is still a real and specific observation.
-            return (mclass, "observation_depleting_missense",
-                    f"{tier}; benign missense essentially never deplete "
-                    f"(0/290 in the matched benign reference, 0/11 ClinVar "
-                    f"benign missense), so this is evidence of functional "
-                    f"abnormality. No disease-specific PS3 tier is applied "
-                    f"because the arm cannot be assigned.")
-        if mclass == "ptv_or_splice":
+            return (mclass, "observation_functional_abnormality",
+                    f"{tier}; benign variants of this class essentially never "
+                    f"deplete (0/290 in the matched benign reference), so this "
+                    f"is evidence of functional abnormality. No "
+                    f"disease-specific PS3 tier is applied, the arm being "
+                    f"unassignable from consequence class alone.")
+        if mclass == "ptv_or_canonical_splice":
             cal = ptv_cal
-        elif mclass == "missense":
+        elif mclass == "arm_unassignable":
             cal = mis_cal
         else:
             return (mclass, "manual_review",

@@ -6,6 +6,11 @@ Tests whether variants the assay classifies as depleting are under-represented
 in gnomAD relative to those it classifies as no impact -- first pooled across
 the gene, then **within each consequence class**.
 
+The splice class is split into canonical acceptor and donor sites and splice
+regions before stratifying. Summary_Consequence pools them, and the two carry
+baselines an order of magnitude apart, so the pooled row averages over a
+confound of exactly the kind this script exists to remove.
+
 Why the stratified test is the one to quote
 -------------------------------------------
 The pooled comparison is confounded, and badly. Baseline gnomAD representation
@@ -61,6 +66,29 @@ DEPLETING = {"weakly depleting", "strongly depleting"}
 # Classes where essentially every variant is classified as depleting, leaving
 # no within-class no-impact pool. Reported, flagged, not dropped.
 NO_POOL_THRESHOLD = 5   # minimum variants needed in *both* groups to test
+
+# Acceptor and donor changes only. Summary_Consequence ranks every splice
+# annotation above the protein-level one, so its Splice_Variant class pools
+# these with splice-region changes that VEP scores below missense. Pooled, the
+# class carries two baselines at once and the row means nothing; split, the
+# splice-region row is the one with a usable comparison pool. Exact term
+# matching, not substring: splice_donor_variant has to be told from
+# splice_donor_region_variant and splice_donor_5th_base_variant.
+CANONICAL_SPLICE_TERMS = {"splice_acceptor_variant", "splice_donor_variant"}
+
+
+def consequence_class(df):
+    """Summary_Consequence, with the splice class split on the raw VEP terms."""
+    for col in ("Summary_Consequence", "Consequence"):
+        if col not in df.columns:
+            sys.exit(f"ERROR: --gnomad_summary has no '{col}' column")
+    cls = df["Summary_Consequence"].copy()
+    is_splice = cls == "Splice_Variant"
+    canonical = df["Consequence"].fillna("").str.split(",").apply(
+        lambda t: bool(CANONICAL_SPLICE_TERMS.intersection(t)))
+    cls[is_splice & canonical] = "Canonical_Splice"
+    cls[is_splice & ~canonical] = "Splice_Region"
+    return cls
 
 # Oligo-name suffixes marking a variant incorporated at the design stage
 # because it was already reported, rather than reached by a systematic
@@ -146,7 +174,8 @@ def main():
               f"({100*k_e/len(enr):.2f}%), OR {odds_e:.2f}, p = {p_e:.3g}\n")
 
     # --- stratified: the reportable comparison ------------------------------
-    rows = [test_row(c, g) for c, g in d.groupby("Summary_Consequence")]
+    d = d.assign(consequence_class=consequence_class(d))
+    rows = [test_row(c, g) for c, g in d.groupby("consequence_class")]
     out = pd.DataFrame(rows).sort_values(
         "pct_gnomad_no_impact", ascending=False, na_position="last")
 
