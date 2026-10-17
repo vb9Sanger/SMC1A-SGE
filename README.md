@@ -663,6 +663,11 @@ leave no within-class comparison pool; those rows are computed and flagged
 `no_comparison_pool` rather than dropped, since their absence from a reported table is
 itself something to be able to justify.
 
+The splice class is split into canonical acceptor and donor sites and splice regions before
+stratifying, on the raw VEP terms rather than the summary label. The two carry baselines an
+order of magnitude apart — 1.6% against 4.6% among no-impact variants — so a pooled splice
+row averages over a confound of exactly the kind this script exists to remove.
+
 ```bash
 python Code/investigations/gnomad_representation_by_consequence.py \
   --gnomad_summary gnomad_intersect_results/sge_gnomad_summary.tsv \
@@ -763,6 +768,14 @@ into a later step:
   exons simply tolerate more or less variation overall, rather than being specifically
   sensitive to splice disruption.
 
+  Canonical splice-site variants are held out of the splice-region set, which is why the
+  script takes `--meta_dir`: the classifier output carries only the summary consequence,
+  which pools acceptor and donor changes with splice-region ones, and the raw VEP terms have
+  to be joined back from the VaLiAnT design output to separate them. Canonical sites deplete
+  at a high rate wherever they sit and show no cassette effect at all, so counting them in
+  dilutes the comparison rather than informing it. Passing `Splice_Variant` to
+  `--splice_labels` restores the pooled behaviour, which is not what the thesis reports.
+
   Three tests on the splice-region side, reported as Tables 4–6: Mann-Whitney on the
   continuous z-scores, Fisher's exact on the proportion depleting, and — added 2026-10-08 —
   the same comparison with the **exon as the unit of analysis**. The first two pool
@@ -860,16 +873,28 @@ purposes that don't depend on its disease-condition attribution being reliable:
 
   Three outcomes, and the distinctions between them are the point of the script:
 
-  - **PTV and splice-class VUS that deplete** take the tier calibrated on the arm given by
-    `--ptv_splice_arm`.
-  - **Missense VUS that deplete** are *not* assigned a disease-specific tier. Missense is the
-    predominant class in one disorder but variants of the other are also missense, so the arm
-    cannot be inferred from consequence class alone — the routing the earlier version did.
-    They are emitted as `observation_depleting_missense` instead: an observation of functional
-    abnormality, carrying no ACMG/AMP code. `--missense_policy route` restores the old
-    behaviour for comparison, but `observe` is the default and the documented choice.
-  - **Everything else** — in-frame indels, enriched calls, non-depleting calls of any class —
-    is left unmapped and flagged for manual review rather than forced into a tier.
+  - **Predicted-truncating VUS that deplete** take the tier calibrated on the arm given by
+    `--ptv_splice_arm`. Membership is decided on the raw VEP terms (`stop_gained`,
+    `frameshift_variant`, `splice_acceptor_variant`, `splice_donor_variant`, `start_lost`),
+    not on the summary consequence. This matters: the summary label ranks every splice
+    annotation above the protein-level one, so its splice class is only 18% canonical
+    acceptor and donor changes, the rest being splice-region changes that VEP scores *below*
+    missense. Routing the whole class to the PTV tier gave a missense variant inside a splice
+    region a Strong evidence code while an identical missense variant elsewhere took nothing.
+  - **Missense and splice-region VUS that deplete** are *not* assigned a disease-specific
+    tier. Missense is the predominant class in one disorder but variants of the other are
+    also missense, so the arm cannot be inferred from consequence class alone — the routing
+    the earlier version did. They are emitted as `observation_functional_abnormality`
+    instead: an observation of functional abnormality, carrying no ACMG/AMP code.
+    `--missense_policy route` restores the old behaviour for comparison, but `observe` is the
+    default and the documented choice.
+  - **Everything else** — in-frame indels, polypyrimidine-tract variants, enriched calls,
+    non-depleting calls of any class — is left unmapped and flagged for manual review rather
+    than forced into a tier.
+
+  On the current ClinVar release no *SMC1A* VUS takes a disease-specific tier, every one of
+  the gene's predicted-truncating variants already being classified pathogenic or likely
+  pathogenic. That is the honest output of the routing above, not a failure of it.
 
   Two gates apply before any tier is borrowed: `--alpha` on the cell's Fisher exact p, and
   `--min_k_path`, a minimum number of pathogenic variants in the calibrating cell. The latter
