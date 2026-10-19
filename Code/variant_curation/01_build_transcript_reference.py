@@ -283,6 +283,39 @@ def v4_targetons(model):
             "action_vector": str(r[idx["action_vector"]]),
         }
 
+    # The manifest records the wrong sgRNA for exon 2. Its row for that exon,
+    # carrying the obsolete targeton name IZFR (renamed to APDY below), gives
+    # 1190757709, but the library was built against 1190757695: the VaLiAnT
+    # design output is named for that guide, and the oligos' own
+    # `pam_mut_sgrna_id` field records it as the guide the three synonymous
+    # PAM-protection variants protect, with 1190757709's protospacer left
+    # unmodified in the same background. Both guides are real and lie 37 bp
+    # apart inside the same design window, so the window was kept and the
+    # guide re-picked. The manifest is an artefact supplied by the design team
+    # and is left as received; the correction is applied here instead.
+    #
+    # The manifest's `sgRNA_off_targets` for that row likewise describes
+    # 1190757709. The two agree at zero to two mismatches and differ at three
+    # and four, so that column is not safe to read for this targeton.
+    #
+    # Keyed on both names so it survives the rename below being applied
+    # upstream, and a no-op if the manifest is ever corrected at source.
+    SGRNA_CORRECTIONS = {("IZFR", "APDY"): ("1190757709", "1190757695")}
+    for ids, (recorded, actual) in SGRNA_CORRECTIONS.items():
+        present = [t for t in ids if t in manifest]
+        if not present:
+            sys.exit(f"FATAL: sgRNA correction defined for {ids}, none of which "
+                     "appear in the manifest; the correction needs review")
+        for tid in present:
+            got = manifest[tid]["sgrna_id"]
+            if got == actual:
+                continue          # corrected upstream; nothing to do
+            if got != recorded:
+                sys.exit(f"FATAL: {tid} sgRNA_id is {got!r} in the manifest, expected "
+                         f"{recorded!r} or {actual!r}; the manifest has changed and "
+                         "the correction needs review")
+            manifest[tid]["sgrna_id"] = actual
+
     regions = {}
     with open(os.path.join(SCREEN, "targeton_regions.tsv"), encoding="utf-8-sig") as fh:
         h = fh.readline().strip().split("\t")
