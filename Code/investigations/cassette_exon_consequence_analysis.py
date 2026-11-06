@@ -21,6 +21,19 @@ comparison rather than informing it. The split is made here from the raw VEP
 terms supplied by --meta_dir, since the classifier output carries only the
 summary label.
 
+"Cassette" is one of seven event classes in the UCSC knownAlt track, not a
+synonym for "alternatively spliced". The non-cassette group is therefore a
+not-this-event group rather than a constitutive-exon group, and in SMC1A it
+contains exon 12, which carries an altThreePrime event. Dropping it does not
+change the result.
+
+All tests here are two-sided. Both directions are a priori plausible -- a
+cassette exon could be less sensitive to splice disruption if the exon is
+dispensable, or more sensitive if its inclusion is finely balanced -- so no
+directional hypothesis is specified in advance. This differs deliberately
+from the calibration scripts (10_calibrate_by_tier.py), where the direction
+IS fixed in advance by the ACMG framework and the test is one-sided.
+
 z_noimpact = (LFC - anchor_mu_noimpact) / anchor_sd_noimpact
   i.e. how many no-impact-control SDs a variant's LFC sits from its own
   targeton's no-impact anchor. More negative = more depletion-like.
@@ -307,11 +320,14 @@ def main():
     # comparison with the EXON as the unit -- one % depleted per targeton,
     # compared between the cassette and non-cassette groups. It has far less
     # power (tens of exons, not thousands of variants) and is the conservative
-    # figure to quote.
+    # figure to quote. Two-sided: cassette exons could plausibly be either more
+    # or less sensitive to splice-signal disruption than other exons -- more if
+    # their inclusion is finely balanced, less if the exon is dispensable -- so
+    # no directional hypothesis was specified in advance.
     exon_cas = splice_per_exon_dep[splice_per_exon_dep["is_cassette"]]["pct_depleted"]
     exon_non = splice_per_exon_dep[~splice_per_exon_dep["is_cassette"]]["pct_depleted"]
     if len(exon_cas) and len(exon_non):
-        u_exon, p_exon = mannwhitneyu(exon_cas, exon_non, alternative="greater")
+        u_exon, p_exon = mannwhitneyu(exon_cas, exon_non, alternative="two-sided")
     else:
         u_exon, p_exon = float("nan"), float("nan")
     exon_level_df = pd.DataFrame([
@@ -323,7 +339,7 @@ def main():
     exon_level_stats = pd.DataFrame([{
         "comparison": "splice-region %% depleted, EXON as unit: cassette vs non-cassette",
         "n1": len(exon_cas), "n2": len(exon_non), "U": u_exon,
-        "p_value": p_exon, "alternative": "greater"}])
+        "p_value": p_exon, "alternative": "two-sided"}])
 
     # --- Combined TSV ---
     combined_path = os.path.join(args.outdir, "cassette_exon_consequence_tables.tsv")
