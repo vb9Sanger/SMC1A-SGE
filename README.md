@@ -163,10 +163,7 @@ a confirmed functional outcome. The scripts, their CLI flags, and their output c
 all name this class `LOF` (e.g. `anchor_mu_lof`, `--lof_label`), for historical reasons;
 this README uses **PTV** in prose instead, reserving "loss-of-function" for the actual
 functional/mechanistic claim (which is what the assay's `anchor_tier` result speaks to,
-not what goes into building the anchor). The distinction matters concretely: not every
-PTV causes loss of function (NMD escape being the clearest exception, handled explicitly
-below), so treating the annotation label and the functional outcome as interchangeable
-would beg the question this step's classification is meant to test.
+not what goes into building the anchor).
 
 Run on the Day15-vs-reference DESeq2 output files from MAVEQC (e.g. `APDY_exon2_all_deseq2_results_condition_Day15_vs_Day4.tsv`), [`gaussian_shrinkage_classifier.R`](Code/pipeline/gaussian_shrinkage_classifier.R) classifies every variant into `enriched` / `no impact` / `weakly depleting` / `strongly depleting`.
 
@@ -278,12 +275,6 @@ was a real source of error, so the rule is fixed in one place:
 | `Summary_Consequence` | the prioritised call, specific | **yes — canonical** |
 | `Summary_Plot` | the same prioritisation, but collapses `Nonsense_Variant` + `Frameshift_Variant` into `LOF` | no |
 
-`Summary_Plot` is not used because **`LOF` is a misnomer** — loss of function is a
-mechanism and a missense variant can be LOF; what that label actually denotes is
-*PTV*. It also breaks concretely: `10_calibrate_by_tier.py`'s `SUMMARY_TO_CLASS`
-map keys on `Nonsense_Variant` and `Frameshift_Variant`, which exist only in
-`Summary_Consequence`.
-
 `CONSEQUENCE_ORDER` in `smc1a_lib.py` reproduces `Summary_Consequence`'s
 prioritisation (splice above every protein-level consequence) while staying
 finer-grained — `Others` resolves to seven specific classes and `Splice_Variant`
@@ -317,29 +308,6 @@ because each one caught something:
 | `verify_extractions_against_sources.py` | checks every extracted cDNA and protein description against its source PDF, XLSX or DOCX, main text and supplementary, notation-insensitively. Found D143 — a 15 bp in-frame deletion recorded as a 1 bp frameshift — and confirmed the curation silently corrects six errors in its own sources |
 | `audit_all_variants_rederivation.py` | re-derives protein change, protein position and group assignment for **all** variants rather than the curated subset, independently of what the pipeline recorded. The other 153 feed the benign reference and the ClinVar comparisons, so an error there reaches the headline statistics without touching the curated set |
 | `check_deposit_individual_matching.py` | whether each database deposit (LOVD, GeneDx, DDD) can be matched one-to-one onto a named individual in the publication it came from, which is what decides whether two records are one case or two. Open question Q38 |
-
-#### Two things the step numbering doesn't tell you
-
-**`annotate_domain_assignment.py` runs between 05 and 06, not after
-everything.** Step 05 does not write the `domain_assignment` / `in_atpase_head` /
-`in_hinge` / `in_reported_cluster` columns, nor the `literature_domain_hotspot*` ones
-retained alongside them; that investigation script (STEP NINE) adds them afterwards, to *both*
-`smc1a_variants_curated.tsv` and `smc1a_variants_all.tsv`. A registry rebuild drops them
-silently — nothing errors, the columns are simply gone, and `06_join_assay.py` then carries
-a narrower table through to the join. Re-run it after any rebuild of step 05, before step
-06. The full order is `01` → `05` → annotate → `06` → `07` → `08`.
-
-**Which targetons are screened is determined by the classifier output, not by a flag.** A
-targeton counts as screened iff it has a results file in the classifier's output directory:
-25 of the 27 designed targetons, i.e. all except **CQEJ** (exon 6, second tiling window) and
-**NLVE** (exon 23), which are designed and present in the library but not screened. Those
-two carry `screening_status = not_screened` in `01_build_transcript_reference.py`, and
-variants whose only design window is one of them get `assay_testable_now = False`. Note that
-`targeton_screening_status` is pipe-joined over a variant's targetons, so a variant spanning
-a screened and an unscreened targeton reads `not_screened|screened` — split on `|` rather
-than substring-matching, since `not_screened` contains `screened`. `08_audit_curated_set.py`
-reports such variants without failing: an unscreened targeton is a true state of the world
-that curation cannot fix, unlike a missing design window, which remains a hard failure.
 
 #### Data note
 
@@ -602,18 +570,6 @@ way for a gene whose population prior falls below its trust floor: the reported 
 P(Y=1) × P(M=1|Y=1), so a missing first factor makes it NaN, and the `--manual-prior` escape
 raises a NameError when combined with it. P(M=1|Y=1) itself does not depend on the prior, so
 this calls their own boundary estimator directly against fits the pipeline already wrote.
-
-**Reconciling the two calibration scripts.** Both normalise `variant_key` before counting
-(the three benign sources disagree on whether to write the contig, so without it no ClinVar key
-ever equals a curated or gnomAD one), and both take `--pool` as a union by variant_key rather
-than a sum of counts — the benign sources share 254 variants, so summing inflated the
-denominator. Both of those were defects in `09_...py` until 2026-09-28.
-
-One difference remains, by design: `10_...py` restricts to the three depletion tiers and so
-drops `enriched` controls, while `09_...py` keeps them in the denominator on the grounds that
-an enriched call is not a depleted call and therefore contributes to specificity. For the
-curated + ClinVar + gnomAD reference that is n=1408 against n=1402, a difference of exactly the
-6 enriched controls, with the same 6 depleted in both.
 
 ---
 
