@@ -12,8 +12,8 @@ from its own stated inputs.
 import csv, os, re, sys
 from collections import Counter, defaultdict
 
-ROOT = "/Users/vb9/Documents/Claude/SMC1A/thesis_workflow/curation_attempt2"
-sys.path.insert(0, f"{ROOT}/code")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import smc1a_lib as L
 from smc1a_lib import CODON_TABLE, AA3, COMPLEMENT
 

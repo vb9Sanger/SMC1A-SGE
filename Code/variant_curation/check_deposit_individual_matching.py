@@ -7,10 +7,14 @@ individuals are all keyed to a single `:unlabelled` id, the deposit labels are
 FINER than the publication's own, and collapsing would merge distinct patients
 -- the opposite error.
 """
+import os
 import re
+import sys
+
 import pandas as pd
 
-ROOT = "/Users/vb9/Documents/Claude/SMC1A/thesis_workflow/curation_attempt2"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = sys.argv[1] if len(sys.argv) > 1 else "deposit_individual_matching.tsv"
 o = pd.read_csv(f"{ROOT}/data/processed/smc1a_observations.tsv",
                 sep="\t", dtype=str, low_memory=False)
 
@@ -71,6 +75,4 @@ if len(um):
     print("=== unmatched deposits (collapse would be unsafe) ===")
     print(um[["parent", "deposit_label", "deposit_token",
               "n_parent_individuals", "degenerate_parent"]].to_string(index=False))
-m.to_csv("/private/tmp/claude-503/-Users-vb9-Documents-Claude-SMC1A-thesis-workflow/"
-         "3868e5c0-820a-4d63-9a8f-9da30bba6c9e/scratchpad/deposit_individual_matching.tsv",
-         sep="\t", index=False)
+m.to_csv(OUT, sep="\t", index=False)

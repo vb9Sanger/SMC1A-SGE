@@ -7,12 +7,14 @@ and/or epilepsy)", which the curation already declines to take an attribution
 from. v2 uses the harmonised disease code per observation instead, so a
 "contradiction" means another source positively claimed the OTHER arm.
 """
+import os
 import re
+import sys
+
 import pandas as pd
 
-ROOT = "/Users/vb9/Documents/Claude/SMC1A/thesis_workflow/curation_attempt2"
-SC = ("/private/tmp/claude-503/-Users-vb9-Documents-Claude-SMC1A-thesis-workflow/"
-      "3868e5c0-820a-4d63-9a8f-9da30bba6c9e/scratchpad")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = sys.argv[1] if len(sys.argv) > 1 else "attribution_evidence_audit.tsv"
 
 cur = pd.read_csv(f"{ROOT}/data/processed/smc1a_variants_curated.tsv",
                   sep="\t", dtype=str, low_memory=False)
@@ -63,7 +65,7 @@ df["contradicted"] = df.n_oppose_src > 0
 df["insufficient"] = (df.n_support_src <= 1) & (
     df.inferred | df.genotype_asc | df.caveated | ~df.percase_detail)
 df["flagged"] = df.contradicted | df.insufficient | (df.n_support_src == 0)
-df.to_csv(f"{SC}/attribution_evidence_audit.tsv", sep="\t", index=False)
+df.to_csv(OUT, sep="\t", index=False)
 
 for arm, g in df.groupby("arm"):
     print(f"=== {arm} (n={len(g)}) ===")

@@ -15,7 +15,7 @@ import csv, glob, logging, os, re, sys
 logging.disable(logging.CRITICAL)
 import pypdf
 
-R = "/Users/vb9/Documents/Claude/SMC1A/thesis_workflow/curation_attempt2"
+R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = f"{R}/variant_curation/sources"
 
 # Sources whose PDF filename does not follow <Author>_<year>
