@@ -564,6 +564,15 @@ its own residue's index, and the analysis tests exactly that direction, so the v
 substitution is removed before comparing. The effect turns out to be negligible (≤0.02 on
 either index) but it is removed rather than argued away.
 
+[`smc1a_mii_snv_restricted.py`](Code/investigations/smc1a_mii_snv_restricted.py) repeats the MII
+calculation using only substitutions reachable by a single nucleotide change. Codon replacements
+reach substitutions that no single-base change can, and those are not what a patient's variant
+would be, so this checks how far the domain differences depend on them. It first reproduces the
+`smc1a_mii.py` baseline, then applies two definitions of "single nucleotide": oligos from the
+`snv` mutator, and variants whose VCF ref and alt are both one base. Run it from the project
+root; it reads `sge_gnomad_summary.tsv` (STEP EIGHT) and takes domain labels from
+`smc1a_mii_per_position.tsv`, and prints its results rather than writing a file.
+
 #### A second calibration method, for contrast
 
 [`build_excalibr_input.py`](Code/investigations/build_excalibr_input.py) supports a calibration of
@@ -782,6 +791,27 @@ into a later step:
   thousands of variants and so assume an independence that variants sharing an exon's splice
   context do not have; Table 6 repeats the contrast on one figure per targeton, which has far
   less power and is the conservative reading to quote.
+
+  All three are two-sided (the exon-level test was one-sided until 2026-10-22). Both
+  directions are a priori plausible — a cassette exon could be *less* sensitive to splice
+  disruption if it is dispensable, or *more* sensitive if its inclusion is finely balanced —
+  so no directional hypothesis is specified in advance. This is the same reasoning as in
+  `gnomad_representation_by_consequence.py`, and differs deliberately from the calibration
+  scripts, where the direction is fixed in advance by the framework and the test is one-sided.
+
+  Note that `cassetteExon` is one of seven event classes in `knownAlt`, not a synonym for
+  "alternatively spliced": the non-cassette group is a not-this-event group, not a
+  constitutive-exon group. In SMC1A it contains exon 12, which carries an `altThreePrime`
+  event within its boundaries.
+* [`cassette_synonymous_targeton_level.py`](Code/investigations/cassette_synonymous_targeton_level.py) —
+  the synonymous specificity control repeated at the same unit of analysis as Table 6: one
+  percentage of synonymous variants depleted per targeton, compared between cassette and
+  non-cassette targetons by two-sided Mann-Whitney, alongside the pooled Fisher's exact test
+  that treats every variant as independent. The two can disagree for the same reason the
+  splice-region tests can, so both are printed. Cassette status is read from the main
+  script's Table 1 rather than recomputed, so the two scripts cannot drift apart. Run it from
+  the project root after `cassette_exon_consequence_analysis.py`; it prints its results
+  rather than writing a file.
 * [`compare_shrinkage_k_runs.py`](Code/investigations/compare_shrinkage_k_runs.py) — sensitivity
   of the STEP FIVE classifier's tier calls to the shrinkage strength parameter `k`, which is
   auto-selected heuristically rather than fit from the data.
@@ -854,8 +884,8 @@ than ClinVar's reliability.
 
 #### Widening the STEP SEVEN calibration with ClinVar
 
-Two further scripts connect this step back to STEP SEVEN's calibration, using ClinVar data for
-purposes that don't depend on its disease-condition attribution being reliable:
+One further script connects this step back to STEP SEVEN's calibration, using ClinVar data for
+a purpose that doesn't depend on its disease-condition attribution being reliable:
 
 * [`extract_clinvar_benign_controls.py`](Code/investigations/extract_clinvar_benign_controls.py) —
   pulls every ClinVar Benign/Likely benign call for the gene region, joined to the assay's own
@@ -865,40 +895,5 @@ purposes that don't depend on its disease-condition attribution being reliable:
   widening it well beyond the curated set's own small `Exclude_Benign` group. Defensible because
   disease-condition attribution (what this step found unreliable) doesn't apply to a benign call;
   `--min_review_tier multi_submitter` is available for a stricter, smaller, higher-confidence cut.
-* [`reclassify_clinvar_vus.py`](Code/investigations/reclassify_clinvar_vus.py) — applies the
-  calibrated OddsPath tiers to the gene's actual ClinVar Uncertain-significance calls. Mapping
-  is **by depletion tier**, reading the per-tier calibration (`--ptv_splice_tsv`,
-  `--missense_tsv`) rather than a single binary depleted-vs-not odds ratio, so a strongly
-  depleting and a weakly depleting call do not collapse to the same evidence strength.
-
-  Three outcomes, and the distinctions between them are the point of the script:
-
-  - **Predicted-truncating VUS that deplete** take the tier calibrated on the arm given by
-    `--ptv_splice_arm`. Membership is decided on the raw VEP terms (`stop_gained`,
-    `frameshift_variant`, `splice_acceptor_variant`, `splice_donor_variant`, `start_lost`),
-    not on the summary consequence. This matters: the summary label ranks every splice
-    annotation above the protein-level one, so its splice class is only 18% canonical
-    acceptor and donor changes, the rest being splice-region changes that VEP scores *below*
-    missense. Routing the whole class to the PTV tier gave a missense variant inside a splice
-    region a Strong evidence code while an identical missense variant elsewhere took nothing.
-  - **Missense and splice-region VUS that deplete** are *not* assigned a disease-specific
-    tier. Missense is the predominant class in one disorder but variants of the other are
-    also missense, so the arm cannot be inferred from consequence class alone — the routing
-    the earlier version did. They are emitted as `observation_functional_abnormality`
-    instead: an observation of functional abnormality, carrying no ACMG/AMP code.
-    `--missense_policy route` restores the old behaviour for comparison, but `observe` is the
-    default and the documented choice.
-  - **Everything else** — in-frame indels, polypyrimidine-tract variants, enriched calls,
-    non-depleting calls of any class — is left unmapped and flagged for manual review rather
-    than forced into a tier.
-
-  On the current ClinVar release no *SMC1A* VUS takes a disease-specific tier, every one of
-  the gene's predicted-truncating variants already being classified pathogenic or likely
-  pathogenic. That is the honest output of the routing above, not a failure of it.
-
-  Two gates apply before any tier is borrowed: `--alpha` on the cell's Fisher exact p, and
-  `--min_k_path`, a minimum number of pathogenic variants in the calibrating cell. The latter
-  is a judgement made here rather than a published rule, and the script's header says so.
 
 ---
-
